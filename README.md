@@ -210,8 +210,59 @@ Max-width 480px, bottom nav, 44px tap targets, one primary CTA per screen.
 
 ## What's still prototype-grade
 
-- **Search**: The top-bar `⌘K` search input is visual only — wire it to a `/api/search` endpoint.
-- **Real-time**: Messages are poll-based via React Query refetch. For true real-time, add Socket.io (deps installed, see `examples/websocket/`).
-- **File uploads**: Progress photos and message attachments are placeholders. Wire to S3/Cloudflare R2.
-- **Password reset**: Not implemented. Add NextAuth email provider or a custom reset flow.
-- **Client onboarding**: Clients must be created by the coach and seeded with a user account. No self-signup flow.
+- ~~Real-time messaging~~ → ✅ Socket.io mini-service (port 3003 + broadcast on 3004)
+- ~~⌘K search~~ → ✅ Command palette with /api/search (clients, templates, exercises)
+- ~~File uploads~~ → ✅ /api/upload route + wired into check-in photos (local storage; swap to S3/R2 for prod)
+- ~~Password reset~~ → ✅ forgot-password + reset-password endpoints + 4-mode auth screen
+- ~~Client self-signup~~ → ✅ /api/auth/signup creates Client + User records
+- **Email service**: Password reset tokens are logged to console in dev. Wire to Resend/SMTP for prod.
+- **Rate limiting**: No rate limiting on API routes yet.
+- **Tests**: No unit/e2e tests yet.
+- **CI/CD**: No pipeline yet.
+
+### Real-time messaging
+
+Socket.io mini-service in `mini-services/chat-service/`:
+- Port 3003: Socket.io server (clients connect via `io('/?XTransformPort=3003')`)
+- Port 3004: HTTP broadcast endpoint (server actions POST here after persisting messages)
+- Rooms: `conv:{clientId}` for each coach-client conversation
+- Events: `new-message`, `typing`
+- Both coach and client chat screens invalidate React Query on new-message → instant refresh
+
+Start the chat service: `cd mini-services/chat-service && bun run dev`
+
+### ⌘K Command Palette
+
+Press `⌘K` (or `Ctrl+K`) anywhere in the coach app to open the search palette. Searches:
+- Clients (by name, goal, training phase)
+- Workout templates (by title, category)
+- Exercise library (by name, muscle group, equipment)
+
+Clicking a result navigates directly to the client detail or workout builder.
+
+### File uploads
+
+`POST /api/upload` with multipart form data → saves to `public/uploads/` → returns `{ url, filename, size, type }`.
+- Max 10MB
+- JPEG, PNG, WebP, GIF
+- Wired into client check-in form (progress photos with thumbnail preview + remove)
+- Swap to S3/R2: change the route to stream to cloud storage instead of local disk
+
+### Password reset
+
+1. `POST /api/auth/forgot-password` with `{ email }` → generates reset token, stores in DB, logs reset URL
+2. User clicks reset link: `/?reset=TOKEN` → login screen switches to reset mode
+3. `POST /api/auth/reset-password` with `{ token, password }` → validates token + expiry, updates password
+
+In dev, the forgot-password response includes `_devResetUrl` so you can test without email. In prod, wire to Resend/SMTP.
+
+### Client self-signup
+
+`POST /api/auth/signup` with `{ email, password, fullName, age, goal }`:
+1. Validates input (password ≥ 8 chars, age 13-120)
+2. Checks email uniqueness
+3. Creates `Client` record (assigned to seeded coach, Foundation phase, "New" tag)
+4. Creates `User` record (role: client, linked to the new client)
+5. Returns `{ ok: true, clientId }`
+
+The login screen has a "Sign up as client" link that switches to signup mode.

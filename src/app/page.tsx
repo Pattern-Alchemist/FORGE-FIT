@@ -36,9 +36,13 @@ export default function Home() {
     )
   }
 
-  // Unauthenticated → login screen
+  // Unauthenticated → login screen (wrapped in Suspense for useSearchParams)
   if (!session || !session.user) {
-    return <LoginScreen />
+    return (
+      <Suspense fallback={null}>
+        <LoginScreen />
+      </Suspense>
+    )
   }
 
   // Client role → client mobile app

@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search,
@@ -16,7 +17,8 @@ import {
   CheckCheck,
 } from 'lucide-react'
 import { useUIStore } from '@/lib/store'
-import { useClients, useMessages, useSavedReplies, useSendMessage } from '@/lib/hooks'
+import { useClients, useMessages, useSavedReplies, useSendMessage, qk } from '@/lib/hooks'
+import { useRealtimeChat } from '@/lib/realtime/use-realtime-chat'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -122,10 +124,19 @@ export function Messages() {
 }
 
 function ChatPanel({ clientId, onBack }: { clientId: string; onBack: () => void }) {
+  const queryClient = useQueryClient()
   const { data: messages = [] } = useMessages(clientId)
   const { data: savedReplies = [] } = useSavedReplies()
   const { data: clients = [] } = useClients()
   const sendMessage = useSendMessage()
+
+  // Real-time: invalidate on new message
+  const { isConnected, isTyping, lastMessage } = useRealtimeChat(clientId)
+  React.useEffect(() => {
+    if (lastMessage) {
+      queryClient.invalidateQueries({ queryKey: qk.messages(clientId) })
+    }
+  }, [lastMessage, queryClient, clientId])
 
   const client = clients.find((c) => c.id === clientId)
   const [input, setInput] = React.useState('')
@@ -134,7 +145,7 @@ function ChatPanel({ clientId, onBack }: { clientId: string; onBack: () => void 
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [messages.length])
+  }, [messages.length, isTyping])
 
   const handleSend = () => {
     if (!input.trim()) return

@@ -15,7 +15,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '@/lib/db'
-import { requireCoachId, requireClientId } from '@/lib/session'
+import { requireCoachId, requireClientId, getSession } from '@/lib/session'
 import {
   assignTemplateSchema,
   checkInReviewSchema,
@@ -75,6 +75,26 @@ export async function sendMessageAction(
       },
       select: { id: true, createdAt: true },
     })
+    // Broadcast to the chat service for real-time delivery
+    try {
+      await fetch(`http://localhost:3004/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          coachId,
+          message: {
+            id: msg.id,
+            clientId,
+            senderType: 'coach',
+            messageText,
+            createdAt: msg.createdAt.toISOString(),
+          },
+        }),
+      })
+    } catch {
+      // Silent fail — message is persisted, realtime is a bonus
+    }
     revalidatePath('/')
     return { ok: true, data: msg }
   } catch (e) {
@@ -324,6 +344,30 @@ export async function clientSendMessageAction(
       },
       select: { id: true, createdAt: true },
     })
+    // Broadcast to the chat service for real-time delivery to the coach
+    try {
+      const client = await db.client.findUnique({
+        where: { id: clientId },
+        select: { coachId: true },
+      })
+      await fetch(`http://localhost:3004/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          coachId: client?.coachId,
+          message: {
+            id: msg.id,
+            clientId,
+            senderType: 'client',
+            messageText,
+            createdAt: msg.createdAt.toISOString(),
+          },
+        }),
+      })
+    } catch {
+      // Silent fail — message is persisted, realtime is a bonus
+    }
     revalidatePath('/')
     return { ok: true, data: msg }
   } catch (e) {

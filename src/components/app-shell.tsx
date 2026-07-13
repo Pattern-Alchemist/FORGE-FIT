@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { CommandPalette } from '@/components/search/command-palette'
 
 type ScreenId = 'dashboard' | 'clients' | 'client-detail' | 'workout-builder' | 'check-ins' | 'messages' | 'settings'
 
@@ -37,6 +38,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
   React.useEffect(() => setMounted(true), [])
+
+  // ⌘K command palette
+  const [paletteOpen, setPaletteOpen] = React.useState(false)
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // Sync URL <-> store
   useUrlStateSync()
@@ -195,15 +209,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Desktop top bar */}
         <header className="hidden lg:flex sticky top-0 z-30 items-center justify-between px-8 h-16 border-b border-border/60 bg-background/80 backdrop-blur-xl">
           <div className="flex items-center gap-3 flex-1 max-w-md">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search clients, workouts, exercises…"
-                className="w-full h-9 pl-9 pr-16 text-sm rounded-lg bg-muted/70 border border-transparent focus:border-border focus:bg-card focus:outline-none transition-colors placeholder:text-muted-foreground/70"
-              />
-              <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground bg-card border border-border rounded px-1.5 py-0.5">⌘K</kbd>
-            </div>
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="relative w-full text-left"
+            >
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <div className="w-full h-9 pl-9 pr-16 text-sm rounded-lg bg-muted/70 border border-transparent hover:border-border transition-colors text-muted-foreground/70 flex items-center">
+                Search clients, workouts, exercises…
+              </div>
+              <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground bg-card border border-border rounded px-1.5 py-0.5 pointer-events-none">⌘K</kbd>
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -262,6 +277,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </div>
       </nav>
+
+      {/* ⌘K Command Palette */}
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   )
 }

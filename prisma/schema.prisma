@@ -34,6 +34,9 @@ model User {
   coach         Coach?   @relation(fields: [coachId], references: [id], onDelete: Cascade)
   clientId      String?  // set when role = client
   client        Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Password reset
+  resetToken    String?
+  resetTokenExpiry DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

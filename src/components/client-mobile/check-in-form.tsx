@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import { motion } from 'framer-motion'
-import { Check, Camera, Send, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { Check, Camera, Send, ChevronRight, CheckCircle2, X, Loader2 } from 'lucide-react'
 import { useSubmitCheckIn, useClientCheckIns } from '@/lib/hooks'
+import { uploadFile } from '@/lib/upload'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -24,6 +25,26 @@ export function ClientCheckIn({ onNavigate }: { onNavigate: (tab: Tab) => void }
   const [mood, setMood] = React.useState(7)
   const [notes, setNotes] = React.useState('')
   const [submitted, setSubmitted] = React.useState(false)
+  const [photos, setPhotos] = React.useState<string[]>([])
+  const [uploading, setUploading] = React.useState(false)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    setUploading(true)
+    try {
+      for (const file of files) {
+        const result = await uploadFile(file)
+        setPhotos((prev) => [...prev, result.url])
+      }
+    } catch (err) {
+      console.error('upload failed:', err)
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   // Pre-fill weight from latest check-in
   React.useEffect(() => {
@@ -48,7 +69,7 @@ export function ClientCheckIn({ onNavigate }: { onNavigate: (tab: Tab) => void }
         sleepScore: sleep,
         moodScore: mood,
         adherencePercent: 80, // client self-reports; coach reviews
-        hasProgressPhoto: false,
+        hasProgressPhoto: photos.length > 0,
         clientNotes: notes,
       },
       {
@@ -96,16 +117,48 @@ export function ClientCheckIn({ onNavigate }: { onNavigate: (tab: Tab) => void }
           <MetricInput label="Body Weight" value={weight} onChange={setWeight} unit="kg" placeholder="80.5" />
           <MetricInput label="Waist" value={waist} onChange={setWaist} unit="cm" placeholder="82" />
         </div>
-        <button className="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 border-dashed border-border/60 text-muted-foreground hover:border-border hover:text-foreground transition-colors tap-smooth">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          multiple
+          onChange={handlePhotoSelect}
+          className="hidden"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 border-dashed border-border/60 text-muted-foreground hover:border-border hover:text-foreground transition-colors tap-smooth disabled:opacity-50"
+        >
           <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-            <Camera className="w-5 h-5" />
+            {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
           </div>
           <div className="text-left flex-1">
-            <div className="text-sm font-medium">Add progress photos</div>
+            <div className="text-sm font-medium">
+              {uploading ? 'Uploading…' : photos.length > 0 ? `${photos.length} photo(s) added` : 'Add progress photos'}
+            </div>
             <div className="text-[11px]">Front, side, back (optional)</div>
           </div>
-          <ChevronRight className="w-4 h-4" />
+          {photos.length === 0 && <ChevronRight className="w-4 h-4" />}
         </button>
+        {photos.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 mt-2">
+            {photos.map((url, i) => (
+              <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-muted">
+                <img src={url} alt={`Progress photo ${i + 1}`} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center tap-smooth"
+                  aria-label="Remove photo"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </motion.div>
 
       {/* Subjective scores */}

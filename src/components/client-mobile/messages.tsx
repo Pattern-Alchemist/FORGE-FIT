@@ -1,9 +1,11 @@
 'use client'
 
 import * as React from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, CheckCheck, Paperclip } from 'lucide-react'
 import { useClientMessages, useClientCoach, useClientSendMessage, useMarkMessagesRead } from '@/lib/hooks'
+import { useRealtimeChat } from '@/lib/realtime/use-realtime-chat'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -11,12 +13,21 @@ import { cn } from '@/lib/utils'
 import { format, isToday, isYesterday } from 'date-fns'
 
 export function ClientMessages() {
+  const queryClient = useQueryClient()
   const { data: messages = [], isLoading } = useClientMessages()
   const { data: coach } = useClientCoach()
   const sendMessage = useClientSendMessage()
   const markRead = useMarkMessagesRead()
   const [input, setInput] = React.useState('')
   const scrollRef = React.useRef<HTMLDivElement>(null)
+
+  // Real-time: invalidate messages query when a new message arrives via socket
+  const { isConnected, isTyping, lastMessage } = useRealtimeChat(null) // null = use session's clientId
+  React.useEffect(() => {
+    if (lastMessage) {
+      queryClient.invalidateQueries({ queryKey: ['client-messages'] })
+    }
+  }, [lastMessage, queryClient])
 
   // Mark messages from coach as read when the chat is opened
   React.useEffect(() => {

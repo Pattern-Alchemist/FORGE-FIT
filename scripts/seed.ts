@@ -8,6 +8,7 @@
 import { PrismaClient } from '@prisma/client'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
+import bcrypt from 'bcryptjs'
 
 const db = new PrismaClient()
 
@@ -427,6 +428,44 @@ async function main() {
     })
   }
   console.log(`  ✓ Activity events: ${activityEventsData.length}`)
+
+  // 12. Auth accounts (coach + 3 clients)
+  console.log('\n🔐 Seeding auth accounts…')
+  const coachPassword = await bcrypt.hash('forge123', 10)
+  const clientPassword = await bcrypt.hash('client123', 10)
+
+  // Coach login
+  await db.user.upsert({
+    where: { email: 'marcus@forge.coach' },
+    update: { passwordHash: coachPassword, role: 'coach', coachId: coach.id, clientId: null },
+    create: {
+      email: 'marcus@forge.coach',
+      passwordHash: coachPassword,
+      role: 'coach',
+      coachId: coach.id,
+    },
+  })
+  console.log('  ✓ Coach login: marcus@forge.coach / forge123')
+
+  // Client logins (3 demo clients)
+  const clientLogins = [
+    { email: 'elena@client.forge.coach', clientId: 'cl1' },
+    { email: 'daichi@client.forge.coach', clientId: 'cl2' },
+    { email: 'priya@client.forge.coach', clientId: 'cl3' },
+  ]
+  for (const cl of clientLogins) {
+    await db.user.upsert({
+      where: { email: cl.email },
+      update: { passwordHash: clientPassword, role: 'client', clientId: cl.clientId, coachId: null },
+      create: {
+        email: cl.email,
+        passwordHash: clientPassword,
+        role: 'client',
+        clientId: cl.clientId,
+      },
+    })
+  }
+  console.log('  ✓ Client logins: elena@client.forge.coach, daichi@client.forge.coach, priya@client.forge.coach (all / client123)')
 
   console.log('\n✅ Seed complete.')
 }

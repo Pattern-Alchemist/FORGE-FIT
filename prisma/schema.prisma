@@ -23,6 +23,26 @@ datasource db {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// User (auth) — links to either a Coach or a Client profile
+// ────────────────────────────────────────────────────────────────────────────
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  role          String   @default("coach") // coach | client
+  coachId       String?  // set when role = coach
+  coach         Coach?   @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  clientId      String?  // set when role = client
+  client        Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([coachId])
+  @@index([clientId])
+  @@map("users")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Coach / User
 // ────────────────────────────────────────────────────────────────────────────
 model Coach {
@@ -36,6 +56,8 @@ model Coach {
   // Notification settings stored as a 1:1 relation for type safety
   notifications   CoachNotifications?
   settings        CoachSettings?
+  // Auth link
+  users           User[]
   // Relations
   clients         Client[]
   programs        Program[]
@@ -105,6 +127,7 @@ model Client {
   tasks               Task[]
   activityEvents      ActivityEvent[]
   assignedTemplates   WorkoutTemplateAssignment[]
+  users               User[] // auth links (client login)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

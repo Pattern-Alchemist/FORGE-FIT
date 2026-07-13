@@ -4,9 +4,11 @@
  * Pure read functions used by React Query fetchers. Each function maps Prisma
  * rows to the UI-facing types defined in src/lib/types.ts.
  *
- * Note: Uses hardcoded COACH_ID until next-auth is wired.
+ * Auth-aware: reads use getServerSession() to resolve the current user.
+ * Coaches see all their data; clients see only their own.
  */
 import { db } from '@/lib/db'
+import { requireCoachId, requireClientId } from '@/lib/session'
 import type {
   Coach,
   Client,
@@ -22,8 +24,6 @@ import type {
   ActivityEvent,
 } from '@/lib/types'
 
-const COACH_ID = 'c1'
-
 function parseJSON<T>(s: string | null | undefined, fallback: T): T {
   if (!s) return fallback
   try {
@@ -37,8 +37,10 @@ function parseJSON<T>(s: string | null | undefined, fallback: T): T {
 // Coach
 // ────────────────────────────────────────────────────────────────────────────
 export async function getCoach(): Promise<Coach | null> {
+  const coachId = await requireCoachId().catch(() => null)
+  if (!coachId) return null
   const c = await db.coach.findUnique({
-    where: { id: COACH_ID },
+    where: { id: coachId },
     include: { notifications: true, settings: true },
   })
   if (!c) return null
@@ -66,8 +68,9 @@ export async function getCoach(): Promise<Coach | null> {
 // Clients
 // ────────────────────────────────────────────────────────────────────────────
 export async function getClients(): Promise<Client[]> {
+  const coachId = await requireCoachId()
   const rows = await db.client.findMany({
-    where: { coachId: COACH_ID },
+    where: { coachId },
     orderBy: { lastActivityAt: 'desc' },
   })
   return rows.map((c) => ({
@@ -159,8 +162,9 @@ export async function getClientProgram(clientId: string): Promise<Program | null
 // Workout templates
 // ────────────────────────────────────────────────────────────────────────────
 export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
+  const coachId = await requireCoachId()
   const rows = await db.workoutTemplate.findMany({
-    where: { coachId: COACH_ID },
+    where: { coachId },
     orderBy: { createdAt: 'desc' },
     include: {
       blocks: {
@@ -246,8 +250,9 @@ export async function getWorkoutTemplate(templateId: string): Promise<WorkoutTem
 // Exercise library
 // ────────────────────────────────────────────────────────────────────────────
 export async function getExerciseLibrary(): Promise<Exercise[]> {
+  const coachId = await requireCoachId()
   const rows = await db.exerciseLibrary.findMany({
-    where: { coachId: COACH_ID },
+    where: { coachId },
     orderBy: { name: 'asc' },
   })
   return rows.map((e) => ({
@@ -336,8 +341,9 @@ export async function getClientHabitLogs(clientId: string): Promise<HabitLog[]> 
 // Saved replies
 // ────────────────────────────────────────────────────────────────────────────
 export async function getSavedReplies(): Promise<SavedReply[]> {
+  const coachId = await requireCoachId()
   const rows = await db.savedReply.findMany({
-    where: { coachId: COACH_ID },
+    where: { coachId },
     orderBy: { createdAt: 'asc' },
   })
   return rows.map((sr) => ({
@@ -352,8 +358,9 @@ export async function getSavedReplies(): Promise<SavedReply[]> {
 // Tasks
 // ────────────────────────────────────────────────────────────────────────────
 export async function getTasks(): Promise<Task[]> {
+  const coachId = await requireCoachId()
   const rows = await db.task.findMany({
-    where: { coachId: COACH_ID },
+    where: { coachId },
     orderBy: [{ completed: 'asc' }, { createdAt: 'desc' }],
   })
   return rows.map((t) => ({
@@ -371,8 +378,9 @@ export async function getTasks(): Promise<Task[]> {
 // Activity events
 // ────────────────────────────────────────────────────────────────────────────
 export async function getActivityEvents(): Promise<ActivityEvent[]> {
+  const coachId = await requireCoachId()
   const rows = await db.activityEvent.findMany({
-    where: { coachId: COACH_ID },
+    where: { coachId },
     orderBy: { timestamp: 'desc' },
     take: 20,
   })
@@ -397,13 +405,14 @@ export interface DashboardStats {
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
+  const coachId = await requireCoachId()
   const [activeClients, workoutsDue, pendingCheckIns, unread, adherenceAgg] = await Promise.all([
-    db.client.count({ where: { coachId: COACH_ID, status: 'active' } }),
-    db.client.count({ where: { coachId: COACH_ID, workoutDueToday: true, status: 'active' } }),
-    db.checkIn.count({ where: { status: 'pending', client: { coachId: COACH_ID } } }),
-    db.message.count({ where: { senderType: 'client', readStatus: false, client: { coachId: COACH_ID } } }),
+    db.client.count({ where: { coachId, status: 'active' } }),
+    db.client.count({ where: { coachId, workoutDueToday: true, status: 'active' } }),
+    db.checkIn.count({ where: { status: 'pending', client: { coachId } } }),
+    db.message.count({ where: { senderType: 'client', readStatus: false, client: { coachId } } }),
     db.client.aggregate({
-      where: { coachId: COACH_ID, status: 'active' },
+      where: { coachId, status: 'active' },
       _avg: { adherenceScore: true },
     }),
   ])
@@ -415,3 +424,126 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     avgAdherence: Math.round(adherenceAgg._avg.adherenceScore ?? 0),
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Client-scoped queries (for the client mobile app)
+// ────────────────────────────────────────────────────────────────────────────
+
+// The client's own profile
+export async function getMyClientProfile(): Promise<Client | null> {
+  const clientId = await requireClientId()
+  return getClient(clientId)
+}
+
+// The client's assigned workout templates (via their active program)
+export async function getMyWorkouts(): Promise<WorkoutTemplate[]> {
+  const clientId = await requireClientId()
+  const program = await db.program.findFirst({
+    where: { clientId, isActive: true },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      templateAssignments: {
+        orderBy: { sortOrder: 'asc' },
+        include: {
+          template: {
+            include: {
+              blocks: {
+                orderBy: { sortOrder: 'asc' },
+                include: { exercises: { orderBy: { sortOrder: 'asc' } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  if (!program) return []
+  return program.templateAssignments.map((ta) => {
+    const t = ta.template
+    return {
+      id: t.id,
+      title: t.title,
+      category: t.category,
+      duration: t.duration,
+      created_at: t.createdAt.toISOString(),
+      assigned_to: [clientId],
+      blocks: t.blocks.map((b): WorkoutBlock => ({
+        id: b.id,
+        block_type: b.blockType as WorkoutBlock['block_type'],
+        notes: b.notes ?? undefined,
+        exercises: b.exercises.map((e): Exercise => ({
+          id: e.id,
+          name: e.name,
+          muscle_group: e.muscleGroup,
+          equipment: e.equipment,
+          video_demo_placeholder: e.hasVideoDemo,
+          sets: e.sets,
+          reps: e.reps,
+          tempo: e.tempo,
+          rest_seconds: e.restSeconds,
+          rpe: e.rpe,
+          notes: e.notes ?? undefined,
+        })),
+      })),
+    }
+  })
+}
+
+// The client's own check-ins
+export async function getMyCheckIns(): Promise<CheckIn[]> {
+  const clientId = await requireClientId()
+  return getClientCheckIns(clientId)
+}
+
+// The client's chat with their coach
+export async function getMyMessages(): Promise<Message[]> {
+  const clientId = await requireClientId()
+  return getClientMessages(clientId)
+}
+
+// The client's coach (for chat header / profile)
+export async function getMyCoach() {
+  const clientId = await requireClientId()
+  const client = await db.client.findUnique({
+    where: { id: clientId },
+    select: { coach: { select: { id: true, name: true, avatar: true, businessName: true } } },
+  })
+  return client?.coach ?? null
+}
+
+// Client dashboard summary
+export interface ClientHomeStats {
+  adherenceScore: number
+  weeklyStreak: number
+  unreadMessages: number
+  workoutDueToday: boolean
+  nextActionLabel: string | null
+  nextActionDue: string | null
+}
+
+export async function getClientHomeStats(): Promise<ClientHomeStats | null> {
+  const clientId = await requireClientId()
+  const client = await db.client.findUnique({
+    where: { id: clientId },
+    select: {
+      adherenceScore: true,
+      weeklyStreak: true,
+      workoutDueToday: true,
+      nextActionLabel: true,
+      nextActionDue: true,
+    },
+  })
+  if (!client) return null
+  const unreadMessages = await db.message.count({
+    where: { clientId, senderType: 'coach', readStatus: false },
+  })
+  return {
+    adherenceScore: client.adherenceScore,
+    weeklyStreak: client.weeklyStreak,
+    unreadMessages,
+    workoutDueToday: client.workoutDueToday,
+    nextActionLabel: client.nextActionLabel,
+    nextActionDue: client.nextActionDue,
+  }
+}
+

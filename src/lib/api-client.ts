@@ -47,4 +47,23 @@ export const api = {
       unreadMessages: number
       avgAdherence: number
     }>('/api/stats'),
+
+  // Client-side endpoints (scoped to the logged-in client)
+  clientHome: () =>
+    fetchJson<{
+      adherenceScore: number
+      weeklyStreak: number
+      unreadMessages: number
+      workoutDueToday: boolean
+      nextActionLabel: string | null
+      nextActionDue: string | null
+    }>('/api/client/home'),
+  clientWorkouts: () => fetchJson<WorkoutTemplate[]>('/api/client/workouts'),
+  clientCheckIns: () => fetchJson<CheckIn[]>('/api/client/checkins'),
+  clientMessages: () => fetchJson<Message[]>('/api/client/messages'),
+  clientCoach: () =>
+    fetchJson<{ id: string; name: string; avatar: string; businessName: string } | null>(
+      '/api/client/coach',
+    ),
+  clientProfile: () => fetchJson<Client | null>('/api/client/profile'),
 }

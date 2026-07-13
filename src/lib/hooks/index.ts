@@ -171,3 +171,96 @@ export function useAssignTemplate() {
     },
   })
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Client-side hooks (for the client mobile app)
+// ────────────────────────────────────────────────────────────────────────────
+import {
+  clientSendMessageAction,
+  submitCheckInAction,
+  logWorkoutCompletionAction,
+  markMessagesReadAction,
+} from '@/lib/actions'
+import type { CheckInInput } from '@/lib/schemas'
+
+export const clientQk = {
+  home: ['client-home'] as const,
+  workouts: ['client-workouts'] as const,
+  checkIns: ['client-check-ins'] as const,
+  messages: ['client-messages'] as const,
+  coach: ['client-coach'] as const,
+  profile: ['client-profile'] as const,
+}
+
+export function useClientHomeStats() {
+  return useQuery({
+    queryKey: clientQk.home,
+    queryFn: () => api.clientHome(),
+  })
+}
+
+export function useClientWorkouts() {
+  return useQuery({ queryKey: clientQk.workouts, queryFn: api.clientWorkouts })
+}
+
+export function useClientCheckIns() {
+  return useQuery({ queryKey: clientQk.checkIns, queryFn: api.clientCheckIns })
+}
+
+export function useClientMessages() {
+  return useQuery({ queryKey: clientQk.messages, queryFn: api.clientMessages })
+}
+
+export function useClientCoach() {
+  return useQuery({ queryKey: clientQk.coach, queryFn: api.clientCoach })
+}
+
+export function useClientProfile() {
+  return useQuery({ queryKey: clientQk.profile, queryFn: api.clientProfile })
+}
+
+// Client mutations
+export function useClientSendMessage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { messageText: string }) => clientSendMessageAction({ clientId: '', ...input }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clientQk.messages })
+    },
+  })
+}
+
+export function useSubmitCheckIn() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CheckInInput) => submitCheckInAction(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clientQk.checkIns })
+      qc.invalidateQueries({ queryKey: clientQk.home })
+    },
+  })
+}
+
+export function useLogWorkout() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { workoutTemplateId: string; durationMin: number }) =>
+      logWorkoutCompletionAction(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clientQk.home })
+      qc.invalidateQueries({ queryKey: clientQk.workouts })
+    },
+  })
+}
+
+export function useMarkMessagesRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => markMessagesReadAction(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clientQk.messages })
+      qc.invalidateQueries({ queryKey: clientQk.home })
+    },
+  })
+}
+

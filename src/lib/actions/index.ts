@@ -15,9 +15,11 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '@/lib/db'
+import { requireCoachId, requireClientId } from '@/lib/session'
 import {
   assignTemplateSchema,
   checkInReviewSchema,
+  checkInSchemaInput,
   clientSchemaInput,
   messageSchemaInput,
   savedReplySchemaInput,
@@ -25,9 +27,6 @@ import {
   workoutTemplateSchemaInput,
   type ActionResult,
 } from '@/lib/schemas'
-
-// TODO: replace with next-auth session user id
-const COACH_ID = 'c1'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Task: toggle complete
@@ -65,10 +64,11 @@ export async function sendMessageAction(
   }
   const { clientId, messageText } = parsed.data
   try {
+    const coachId = await requireCoachId()
     const msg = await db.message.create({
       data: {
         clientId,
-        coachId: COACH_ID,
+        coachId,
         senderType: 'coach',
         messageText,
         readStatus: true,
@@ -94,9 +94,10 @@ export async function reviewCheckInAction(
   }
   const { checkInId, coachResponse, status } = parsed.data
   try {
+    const coachId = await requireCoachId()
     const updated = await db.checkIn.update({
       where: { id: checkInId },
-      data: { coachResponse, status, coachId: COACH_ID },
+      data: { coachResponse, status, coachId },
       select: { id: true, status: true },
     })
     revalidatePath('/')
@@ -119,6 +120,7 @@ export async function saveWorkoutTemplateAction(
   const { title, category, duration, blocks } = parsed.data
   const { id } = input
   try {
+    const coachId = await requireCoachId()
     if (id) {
       // Update: delete existing blocks, recreate
       await db.workoutBlock.deleteMany({ where: { templateId: id } })
@@ -157,7 +159,7 @@ export async function saveWorkoutTemplateAction(
     // Create
     const newTpl = await db.workoutTemplate.create({
       data: {
-        coachId: COACH_ID,
+        coachId,
         title,
         category,
         duration,
@@ -248,8 +250,9 @@ export async function createSavedReplyAction(
     return { ok: false, error: 'Invalid input', fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> }
   }
   try {
+    const coachId = await requireCoachId()
     const sr = await db.savedReply.create({
-      data: { coachId: COACH_ID, ...parsed.data },
+      data: { coachId, ...parsed.data },
       select: { id: true },
     })
     revalidatePath('/')
@@ -270,9 +273,10 @@ export async function createClientAction(
     return { ok: false, error: 'Invalid input', fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> }
   }
   try {
+    const coachId = await requireCoachId()
     const c = await db.client.create({
       data: {
-        coachId: COACH_ID,
+        coachId,
         fullName: parsed.data.fullName,
         avatar: parsed.data.avatar || parsed.data.fullName.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase(),
         age: parsed.data.age,
@@ -291,6 +295,139 @@ export async function createClientAction(
     })
     revalidatePath('/')
     return { ok: true, data: c }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Client-side actions (for the client mobile app)
+// ────────────────────────────────────────────────────────────────────────────
+
+// Client: send a message to their coach
+export async function clientSendMessageAction(
+  input: z.infer<typeof messageSchemaInput>,
+): Promise<ActionResult<{ id: string; createdAt: Date }>> {
+  const parsed = messageSchemaInput.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid input', fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> }
+  }
+  const { messageText } = parsed.data
+  try {
+    const clientId = await requireClientId()
+    const msg = await db.message.create({
+      data: {
+        clientId,
+        senderType: 'client',
+        messageText,
+        readStatus: false,
+      },
+      select: { id: true, createdAt: true },
+    })
+    revalidatePath('/')
+    return { ok: true, data: msg }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+// Client: submit a weekly check-in
+export async function submitCheckInAction(
+  input: z.infer<typeof checkInSchemaInput>,
+): Promise<ActionResult<{ id: string }>> {
+  const parsed = checkInSchemaInput.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid input', fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> }
+  }
+  try {
+    const clientId = await requireClientId()
+    const ci = await db.checkIn.create({
+      data: {
+        clientId,
+        date: parsed.data.date,
+        bodyWeight: parsed.data.bodyWeight,
+        waist: parsed.data.waist ?? null,
+        chest: parsed.data.chest ?? null,
+        arms: parsed.data.arms ?? null,
+        thighs: parsed.data.thighs ?? null,
+        energyScore: parsed.data.energyScore,
+        sleepScore: parsed.data.sleepScore,
+        moodScore: parsed.data.moodScore,
+        adherencePercent: parsed.data.adherencePercent,
+        hasProgressPhoto: parsed.data.hasProgressPhoto,
+        clientNotes: parsed.data.clientNotes,
+        status: 'pending',
+      },
+      select: { id: true },
+    })
+    revalidatePath('/')
+    return { ok: true, data: ci }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+// Client: log a workout as completed
+export async function logWorkoutCompletionAction(
+  input: { workoutTemplateId: string; durationMin: number },
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const clientId = await requireClientId()
+    const today = new Date()
+    const id = `hl-${clientId}-${today.toISOString().slice(0, 10)}`
+    await db.habitLog.upsert({
+      where: { id },
+      update: { workoutCompleted: true },
+      create: {
+        id,
+        clientId,
+        date: today,
+        workoutCompleted: true,
+        steps: 0,
+        water: 0,
+        protein: 0,
+        sleepHours: 0,
+      },
+    })
+    const tpl = await db.workoutTemplate.findUnique({
+      where: { id: input.workoutTemplateId },
+      select: { title: true },
+    })
+    const client = await db.client.findUnique({
+      where: { id: clientId },
+      select: { coachId: true, fullName: true },
+    })
+    if (client) {
+      await db.activityEvent.create({
+        data: {
+          coachId: client.coachId,
+          clientId,
+          type: 'workout_complete',
+          label: `completed ${tpl?.title ?? 'workout'}`,
+        },
+      })
+      await db.client.update({
+        where: { id: clientId },
+        data: { lastActivityAt: new Date(), workoutDueToday: false },
+      })
+    }
+    revalidatePath('/')
+    return { ok: true, data: { id } }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+// Client: mark messages from coach as read
+export async function markMessagesReadAction(): Promise<ActionResult<{ count: number }>> {
+  try {
+    const clientId = await requireClientId()
+    const result = await db.message.updateMany({
+      where: { clientId, senderType: 'coach', readStatus: false },
+      data: { readStatus: true },
+    })
+    revalidatePath('/')
+    return { ok: true, data: { count: result.count } }
   } catch (e) {
     return { ok: false, error: (e as Error).message }
   }

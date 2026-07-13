@@ -15,14 +15,17 @@ import {
   ArrowLeft,
   Timer,
   RotateCcw,
+  X,
+  Trophy,
 } from 'lucide-react'
-import { useClientWorkouts, useLogWorkout } from '@/lib/hooks'
+import { useClientWorkouts, useLogWorkoutWithSets } from '@/lib/hooks'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import type { WorkoutTemplate, Exercise } from '@/lib/types'
 
-type Tab = 'home' | 'workout' | 'check-in' | 'messages'
+import type { Tab } from './app'
 
 export function ClientWorkout({
   templateId,
@@ -34,13 +37,12 @@ export function ClientWorkout({
   onNavigate: (tab: Tab) => void
 }) {
   const { data: workouts = [], isLoading } = useClientWorkouts()
-  const logWorkout = useLogWorkout()
 
   // If a templateId is active, show the logger; otherwise show the list
   if (templateId) {
     const workout = workouts.find((w) => w.id === templateId)
     if (workout) {
-      return <WorkoutLogger workout={workout} onBack={onClearActive} onComplete={() => { onClearActive(); onNavigate('home') }} logWorkout={logWorkout} />
+      return <WorkoutLogger workout={workout} onBack={onClearActive} onComplete={() => { onClearActive(); onNavigate('home') }} />
     }
   }
 
@@ -116,34 +118,28 @@ function WorkoutLogger({
   workout,
   onBack,
   onComplete,
-  logWorkout,
 }: {
   workout: WorkoutTemplate
   onBack: () => void
   onComplete: () => void
-  logWorkout: ReturnType<typeof useLogWorkout>
 }) {
-  const [activeBlockIdx, setActiveBlockIdx] = React.useState(0)
+  const logWorkout = useLogWorkoutWithSets()
   const [completedSets, setCompletedSets] = React.useState<Record<string, boolean[]>>({})
+  const [setWeights, setSetWeights] = React.useState<Record<string, string[]>>({})
+  const [setReps, setSetReps] = React.useState<Record<string, string[]>>({})
   const [restTimer, setRestTimer] = React.useState<{ seconds: number; remaining: number } | null>(null)
   const [showComplete, setShowComplete] = React.useState(false)
+  const [newPRs, setNewPRs] = React.useState(0)
 
-  // Flatten all exercises for progress tracking
   const allExercises = workout.blocks.flatMap((b) => b.exercises)
   const totalSets = allExercises.reduce((a, e) => a + e.sets, 0)
   const completedCount = Object.values(completedSets).reduce((a, sets) => a + sets.filter(Boolean).length, 0)
   const progress = totalSets > 0 ? Math.round((completedCount / totalSets) * 100) : 0
 
-  // Rest timer countdown
   React.useEffect(() => {
     if (!restTimer) return
-    if (restTimer.remaining <= 0) {
-      setRestTimer(null)
-      return
-    }
-    const id = setTimeout(() => {
-      setRestTimer((t) => (t ? { ...t, remaining: t.remaining - 1 } : null))
-    }, 1000)
+    if (restTimer.remaining <= 0) { setRestTimer(null); return }
+    const id = setTimeout(() => setRestTimer((t) => (t ? { ...t, remaining: t.remaining - 1 } : null)), 1000)
     return () => clearTimeout(id)
   }, [restTimer])
 
@@ -153,17 +149,68 @@ function WorkoutLogger({
       sets[setIdx] = !sets[setIdx]
       return { ...prev, [exerciseId]: sets }
     })
-    // Start rest timer when completing a set
     const wasCompleted = completedSets[exerciseId]?.[setIdx]
     if (!wasCompleted && restSeconds > 0) {
       setRestTimer({ seconds: restSeconds, remaining: restSeconds })
     }
   }
 
+  const updateWeight = (exerciseId: string, setIdx: number, value: string) => {
+    setSetWeights((prev) => {
+      const weights = prev[exerciseId] ? [...prev[exerciseId]] : []
+      weights[setIdx] = value
+      return { ...prev, [exerciseId]: weights }
+    })
+  }
+
+  const updateReps = (exerciseId: string, setIdx: number, value: string) => {
+    setSetReps((prev) => {
+      const reps = prev[exerciseId] ? [...prev[exerciseId]] : []
+      reps[setIdx] = value
+      return { ...prev, [exerciseId]: reps }
+    })
+  }
+
   const handleComplete = () => {
+    // Build set logs from completed sets
+    const setLogs: { exerciseName: string; setNumber: number; reps: number; weight: number; rpe?: number }[] = []
+    workout.blocks.forEach((block) => {
+      block.exercises.forEach((ex) => {
+        const completed = completedSets[ex.id] ?? []
+        const weights = setWeights[ex.id] ?? []
+        const reps = setReps[ex.id] ?? []
+        completed.forEach((done, idx) => {
+          if (done) {
+            const weight = Number(weights[idx] || '0')
+            const repCount = Number(reps[idx] || ex.reps)
+            setLogs.push({
+              exerciseName: ex.name,
+              setNumber: idx + 1,
+              reps: repCount,
+              weight,
+              rpe: ex.rpe,
+            })
+          }
+        })
+      })
+    })
+
     logWorkout.mutate(
-      { workoutTemplateId: workout.id, durationMin: workout.duration },
-      { onSuccess: () => { setShowComplete(true); setTimeout(onComplete, 1800) } },
+      {
+        templateId: workout.id,
+        title: workout.title,
+        durationMin: workout.duration,
+        setLogs,
+      },
+      {
+        onSuccess: (data) => {
+          if (data.ok) {
+            setNewPRs(data.data.newPRs)
+          }
+          setShowComplete(true)
+          setTimeout(onComplete, 2200)
+        },
+      },
     )
   }
 
@@ -179,7 +226,20 @@ function WorkoutLogger({
           <CheckCircle2 className="w-10 h-10 text-success" strokeWidth={2.5} />
         </motion.div>
         <h2 className="text-display text-xl text-foreground mb-1">Workout complete!</h2>
-        <p className="text-sm text-muted-foreground">Great work. Your coach has been notified.</p>
+        {newPRs > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="mt-3 flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-xl px-4 py-2"
+          >
+            <Trophy className="w-5 h-5 text-primary" />
+            <span className="text-sm font-semibold text-primary">
+              {newPRs} new PR{newPRs > 1 ? 's' : ''}!
+            </span>
+          </motion.div>
+        )}
+        <p className="text-sm text-muted-foreground mt-3">Great work. Your coach has been notified.</p>
       </div>
     )
   }
@@ -238,7 +298,7 @@ function WorkoutLogger({
 
       {/* Blocks */}
       <div className="space-y-4">
-        {workout.blocks.map((block, bi) => (
+        {workout.blocks.map((block) => (
           <div key={block.id}>
             <div className="flex items-center gap-2 mb-2 px-1">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-1 rounded-md">
@@ -252,7 +312,11 @@ function WorkoutLogger({
                   key={ex.id}
                   exercise={ex}
                   completedSets={completedSets[ex.id] ?? []}
+                  weights={setWeights[ex.id] ?? []}
+                  reps={setReps[ex.id] ?? []}
                   onToggleSet={(setIdx) => toggleSet(ex.id, setIdx, ex.rest_seconds)}
+                  onUpdateWeight={(setIdx, val) => updateWeight(ex.id, setIdx, val)}
+                  onUpdateReps={(setIdx, val) => updateReps(ex.id, setIdx, val)}
                 />
               ))}
             </div>
@@ -287,13 +351,29 @@ function WorkoutLogger({
 function ExerciseLogger({
   exercise,
   completedSets,
+  weights,
+  reps,
   onToggleSet,
+  onUpdateWeight,
+  onUpdateReps,
 }: {
   exercise: Exercise
   completedSets: boolean[]
+  weights: string[]
+  reps: string[]
   onToggleSet: (setIdx: number) => void
+  onUpdateWeight: (setIdx: number, value: string) => void
+  onUpdateReps: (setIdx: number, value: string) => void
 }) {
   const [expanded, setExpanded] = React.useState(true)
+  const [showVideo, setShowVideo] = React.useState(false)
+
+  // Extract YouTube video ID
+  const getYouTubeId = (url: string) => {
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/)
+    return match ? match[1] : null
+  }
+  const videoId = exercise.video_url ? getYouTubeId(exercise.video_url) : null
 
   return (
     <div className="rounded-xl bg-card border border-border/60 overflow-hidden">
@@ -310,13 +390,46 @@ function ExerciseLogger({
             {exercise.sets} × {exercise.reps} · {exercise.rest_seconds}s rest · RPE {exercise.rpe}
           </div>
         </div>
-        {exercise.video_demo_placeholder && (
-          <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0">
-            <Video className="w-3.5 h-3.5 text-muted-foreground" />
-          </div>
+        {videoId && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowVideo(true) }}
+            className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0 tap-smooth"
+            aria-label="Watch demo"
+          >
+            <Video className="w-4 h-4 text-primary" />
+          </button>
         )}
         {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
       </button>
+
+      {/* Video demo modal */}
+      <AnimatePresence>
+        {showVideo && videoId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+            onClick={() => setShowVideo(false)}
+          >
+            <div className="relative w-full max-w-md aspect-video bg-black rounded-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <iframe
+                src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
+                title={exercise.name}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+              <button
+                onClick={() => setShowVideo(false)}
+                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {expanded && (
@@ -328,35 +441,54 @@ function ExerciseLogger({
             className="overflow-hidden border-t border-border/60"
           >
             <div className="p-3 space-y-2">
-              {/* Set checklist */}
+              {/* Set checklist with weight + reps inputs */}
               <div className="space-y-1.5">
                 {Array.from({ length: exercise.sets }).map((_, setIdx) => {
                   const done = completedSets[setIdx]
                   return (
-                    <button
+                    <div
                       key={setIdx}
-                      onClick={() => onToggleSet(setIdx)}
                       className={cn(
-                        'w-full flex items-center gap-3 p-2.5 rounded-lg border transition-all tap-smooth min-h-[44px]',
+                        'flex items-center gap-2 p-2.5 rounded-lg border transition-all min-h-[44px]',
                         done
                           ? 'bg-success/10 border-success/30'
-                          : 'bg-muted/40 border-border/60 hover:border-border',
+                          : 'bg-muted/40 border-border/60',
                       )}
                     >
-                      <div
+                      <button
+                        onClick={() => onToggleSet(setIdx)}
                         className={cn(
-                          'w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors',
+                          'w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors tap-smooth',
                           done ? 'bg-success text-white' : 'bg-muted border border-border',
                         )}
                       >
                         {done && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
+                      </button>
+                      <span className="text-xs font-medium text-foreground shrink-0 w-8">S{setIdx + 1}</span>
+                      {/* Weight input */}
+                      <div className="flex-1 relative">
+                        <Input
+                          type="number"
+                          value={weights[setIdx] || ''}
+                          onChange={(e) => onUpdateWeight(setIdx, e.target.value)}
+                          placeholder={exercise.reps}
+                          className="h-8 text-xs font-medium bg-card border-border/60 pr-7 tabular-nums"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground">kg</span>
                       </div>
-                      <div className="flex-1 text-left">
-                        <span className="text-sm font-medium text-foreground">Set {setIdx + 1}</span>
-                        <span className="text-[11px] text-muted-foreground ml-2">{exercise.reps} reps · {exercise.tempo}</span>
+                      {/* Reps input */}
+                      <div className="flex-1 relative">
+                        <Input
+                          type="number"
+                          value={reps[setIdx] || ''}
+                          onChange={(e) => onUpdateReps(setIdx, e.target.value)}
+                          placeholder={exercise.reps}
+                          className="h-8 text-xs font-medium bg-card border-border/60 pr-7 tabular-nums"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground">reps</span>
                       </div>
-                      <span className="text-[11px] text-muted-foreground">{exercise.rest_seconds}s</span>
-                    </button>
+                      <span className="text-[10px] text-muted-foreground shrink-0 w-8 text-right">{exercise.rest_seconds}s</span>
+                    </div>
                   )
                 })}
               </div>

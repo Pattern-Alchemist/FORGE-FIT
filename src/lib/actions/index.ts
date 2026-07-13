@@ -477,3 +477,231 @@ export async function markMessagesReadAction(): Promise<ActionResult<{ count: nu
   }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Workout logging with auto-PR detection
+// ────────────────────────────────────────────────────────────────────────────
+const setLogSchema = z.object({
+  exerciseName: z.string().min(1),
+  setNumber: z.number().int().min(1),
+  reps: z.number().int().min(1),
+  weight: z.number().min(0),
+  rpe: z.number().int().min(1).max(10).optional(),
+})
+
+export async function logWorkoutWithSetsAction(
+  input: {
+    templateId: string | null
+    title: string
+    durationMin: number
+    setLogs: z.infer<typeof setLogSchema>[]
+  },
+): Promise<ActionResult<{ workoutLogId: string; newPRs: number }>> {
+  const parsed = z.object({
+    templateId: z.string().nullable(),
+    title: z.string().min(1),
+    durationMin: z.number().int().min(1),
+    setLogs: z.array(setLogSchema),
+  }).safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid input', fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> }
+  }
+
+  try {
+    const clientId = await requireClientId()
+    const { templateId, title, durationMin, setLogs } = parsed.data
+
+    const totalSets = setLogs.length
+    const totalReps = setLogs.reduce((a, s) => a + s.reps, 0)
+    const estimatedVolume = setLogs.reduce((a, s) => a + s.reps * s.weight, 0)
+
+    const workoutLog = await db.workoutLog.create({
+      data: {
+        clientId,
+        templateId: templateId ?? null,
+        title,
+        durationMin,
+        totalSets,
+        totalReps,
+        estimatedVolume,
+        setLogs: {
+          create: setLogs.map((s) => ({
+            exerciseName: s.exerciseName,
+            setNumber: s.setNumber,
+            reps: s.reps,
+            weight: s.weight,
+            rpe: s.rpe ?? null,
+          })),
+        },
+      },
+    })
+
+    // Auto-detect PRs — for each set, check if it's a new PR for that (exercise, reps) combo
+    let newPRs = 0
+    for (const s of setLogs) {
+      if (s.weight <= 0) continue
+      // Epley 1RM estimate
+      const estimated1RM = s.weight * (1 + s.reps / 30)
+      const existing = await db.personalRecord.findUnique({
+        where: {
+          clientId_exerciseName_reps: {
+            clientId,
+            exerciseName: s.exerciseName,
+            reps: s.reps,
+          },
+        },
+      })
+      if (!existing || s.weight > existing.weight) {
+        await db.personalRecord.upsert({
+          where: {
+            clientId_exerciseName_reps: {
+              clientId,
+              exerciseName: s.exerciseName,
+              reps: s.reps,
+            },
+          },
+          update: {
+            weight: s.weight,
+            estimated1RM,
+            achievedAt: new Date(),
+          },
+          create: {
+            clientId,
+            exerciseName: s.exerciseName,
+            reps: s.reps,
+            weight: s.weight,
+            estimated1RM,
+          },
+        })
+        if (!existing) newPRs++
+      }
+    }
+
+    // Create activity event for the coach
+    const client = await db.client.findUnique({
+      where: { id: clientId },
+      select: { coachId: true },
+    })
+    if (client) {
+      await db.activityEvent.create({
+        data: {
+          coachId: client.coachId,
+          clientId,
+          type: 'workout_complete',
+          label: `completed ${title}${newPRs > 0 ? ` (${newPRs} new PR${newPRs > 1 ? 's' : ''}!)` : ''}`,
+        },
+      })
+      await db.client.update({
+        where: { id: clientId },
+        data: { lastActivityAt: new Date(), workoutDueToday: false },
+      })
+    }
+
+    revalidatePath('/')
+    return { ok: true, data: { workoutLogId: workoutLog.id, newPRs } }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Nutrition: log a meal
+// ────────────────────────────────────────────────────────────────────────────
+export async function logMealAction(
+  input: {
+    name: string
+    calories: number
+    protein: number
+    carbs: number
+    fat: number
+  },
+): Promise<ActionResult<{ mealId: string; nutritionLogId: string }>> {
+  const parsed = z.object({
+    name: z.string().min(1).max(80),
+    calories: z.number().int().min(0),
+    protein: z.number().int().min(0),
+    carbs: z.number().int().min(0),
+    fat: z.number().int().min(0),
+  }).safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid input', fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> }
+  }
+
+  try {
+    const clientId = await requireClientId()
+    const { name, calories, protein, carbs, fat } = parsed.data
+
+    // Get or create today's nutrition log
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    let log = await db.nutritionLog.findFirst({
+      where: { clientId, date: today },
+    })
+    if (!log) {
+      log = await db.nutritionLog.create({
+        data: { clientId, date: today },
+      })
+    }
+
+    // Create the meal entry
+    const meal = await db.mealEntry.create({
+      data: {
+        nutritionLogId: log.id,
+        name,
+        calories,
+        protein,
+        carbs,
+        fat,
+      },
+    })
+
+    // Update the daily totals
+    await db.nutritionLog.update({
+      where: { id: log.id },
+      data: {
+        calories: { increment: calories },
+        protein: { increment: protein },
+        carbs: { increment: carbs },
+        fat: { increment: fat },
+      },
+    })
+
+    revalidatePath('/')
+    return { ok: true, data: { mealId: meal.id, nutritionLogId: log.id } }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+// Delete a meal (subtracts from daily totals)
+export async function deleteMealAction(
+  input: { mealId: string },
+): Promise<ActionResult<{ ok: true }>> {
+  try {
+    const clientId = await requireClientId()
+    const meal = await db.mealEntry.findUnique({
+      where: { id: input.mealId },
+      include: { nutritionLog: true },
+    })
+    if (!meal || meal.nutritionLog.clientId !== clientId) {
+      return { ok: false, error: 'Meal not found' }
+    }
+
+    // Subtract from daily totals
+    await db.nutritionLog.update({
+      where: { id: meal.nutritionLogId },
+      data: {
+        calories: { decrement: meal.calories },
+        protein: { decrement: meal.protein },
+        carbs: { decrement: meal.carbs },
+        fat: { decrement: meal.fat },
+      },
+    })
+    await db.mealEntry.delete({ where: { id: input.mealId } })
+
+    revalidatePath('/')
+    return { ok: true, data: { ok: true } }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+

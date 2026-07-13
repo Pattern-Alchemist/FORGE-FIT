@@ -16,7 +16,7 @@
  */
 import * as React from 'react'
 import { useTheme } from 'next-themes'
-import { Home, Dumbbell, ClipboardCheck, MessageSquare, Flame, Sun, Moon } from 'lucide-react'
+import { Home, Dumbbell, ClipboardCheck, MessageSquare, Flame, Sun, Moon, TrendingUp, Apple } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { signOut } from 'next-auth/react'
 import { cn } from '@/lib/utils'
@@ -24,8 +24,10 @@ import { ClientHome } from './home'
 import { ClientWorkout } from './workout'
 import { ClientCheckIn } from './check-in-form'
 import { ClientMessages } from './messages'
+import { ClientProgress } from './progress'
+import { ClientNutrition } from './nutrition'
 
-type Tab = 'home' | 'workout' | 'check-in' | 'messages'
+export type Tab = 'home' | 'workout' | 'progress' | 'nutrition' | 'check-in' | 'messages'
 
 export function ClientMobileApp() {
   const { theme, setTheme } = useTheme()
@@ -37,7 +39,8 @@ export function ClientMobileApp() {
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'workout', label: 'Workout', icon: Dumbbell },
-    { id: 'check-in', label: 'Check-in', icon: ClipboardCheck },
+    { id: 'progress', label: 'Progress', icon: TrendingUp },
+    { id: 'nutrition', label: 'Food', icon: Apple },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
   ]
 
@@ -92,6 +95,8 @@ export function ClientMobileApp() {
                 onNavigate={setTab}
               />
             )}
+            {tab === 'progress' && <ClientProgress onNavigate={setTab} />}
+            {tab === 'nutrition' && <ClientNutrition onNavigate={setTab} />}
             {tab === 'check-in' && <ClientCheckIn onNavigate={setTab} />}
             {tab === 'messages' && <ClientMessages />}
           </motion.div>
@@ -103,7 +108,7 @@ export function ClientMobileApp() {
         className="fixed bottom-0 inset-x-0 max-w-[480px] mx-auto z-40 bg-background/95 backdrop-blur-xl border-t border-border/60"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="grid grid-cols-4 h-16">
+        <div className="grid grid-cols-5 h-16">
           {tabs.map((t) => {
             const Icon = t.icon
             const active = tab === t.id

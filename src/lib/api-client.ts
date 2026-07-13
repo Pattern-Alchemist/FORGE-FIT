@@ -24,6 +24,9 @@ import type {
   SavedReply,
   Task,
   ActivityEvent,
+  WorkoutLog,
+  PersonalRecord,
+  NutritionLog,
 } from '@/lib/types'
 
 export const api = {
@@ -66,4 +69,10 @@ export const api = {
       '/api/client/coach',
     ),
   clientProfile: () => fetchJson<Client | null>('/api/client/profile'),
+  clientWorkoutLogs: () => fetchJson<WorkoutLog[]>('/api/client/workout-logs'),
+  clientPRs: () => fetchJson<PersonalRecord[]>('/api/client/personal-records'),
+  clientNutrition: (date?: string) =>
+    fetchJson<NutritionLog>(`/api/client/nutrition${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  clientNutritionHistory: (days: number) =>
+    fetchJson<NutritionLog[]>(`/api/client/nutrition?history=${days}`),
 }

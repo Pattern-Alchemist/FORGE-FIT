@@ -264,3 +264,79 @@ export function useMarkMessagesRead() {
   })
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Workout logs + PRs + Nutrition (client mobile app)
+// ────────────────────────────────────────────────────────────────────────────
+import {
+  logWorkoutWithSetsAction,
+  logMealAction,
+  deleteMealAction,
+} from '@/lib/actions'
+
+export const clientQkExt = {
+  workoutLogs: ['client-workout-logs'] as const,
+  prs: ['client-prs'] as const,
+  nutrition: ['client-nutrition'] as const,
+  nutritionHistory: ['client-nutrition-history'] as const,
+}
+
+export function useClientWorkoutLogs() {
+  return useQuery({ queryKey: clientQkExt.workoutLogs, queryFn: api.clientWorkoutLogs })
+}
+
+export function useClientPRs() {
+  return useQuery({ queryKey: clientQkExt.prs, queryFn: api.clientPRs })
+}
+
+export function useClientNutrition(date?: string) {
+  return useQuery({
+    queryKey: [...clientQkExt.nutrition, date ?? 'today'],
+    queryFn: () => api.clientNutrition(date),
+  })
+}
+
+export function useClientNutritionHistory(days = 7) {
+  return useQuery({
+    queryKey: [...clientQkExt.nutritionHistory, days],
+    queryFn: () => api.clientNutritionHistory(days),
+  })
+}
+
+export function useLogWorkoutWithSets() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: {
+      templateId: string | null
+      title: string
+      durationMin: number
+      setLogs: { exerciseName: string; setNumber: number; reps: number; weight: number; rpe?: number }[]
+    }) => logWorkoutWithSetsAction(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clientQkExt.workoutLogs })
+      qc.invalidateQueries({ queryKey: clientQkExt.prs })
+      qc.invalidateQueries({ queryKey: clientQk.home })
+    },
+  })
+}
+
+export function useLogMeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { name: string; calories: number; protein: number; carbs: number; fat: number }) =>
+      logMealAction(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clientQkExt.nutrition })
+    },
+  })
+}
+
+export function useDeleteMeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { mealId: string }) => deleteMealAction(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clientQkExt.nutrition })
+    },
+  })
+}
+

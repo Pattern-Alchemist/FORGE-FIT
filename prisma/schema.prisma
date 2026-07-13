@@ -131,6 +131,9 @@ model Client {
   activityEvents      ActivityEvent[]
   assignedTemplates   WorkoutTemplateAssignment[]
   users               User[] // auth links (client login)
+  workoutLogs         WorkoutLog[]
+  nutritionLogs       NutritionLog[]
+  personalRecords     PersonalRecord[]
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -177,6 +180,7 @@ model WorkoutTemplate {
   duration        Int      @default(60) // minutes
   blocks          WorkoutBlock[]
   programLinks    WorkoutTemplateAssignment[]
+  workoutLogs     WorkoutLog[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -234,6 +238,7 @@ model Exercise {
   muscleGroup     String
   equipment       String
   hasVideoDemo    Boolean  @default(false)
+  videoUrl        String?  // YouTube URL or MP4 path
   sets            Int      @default(3)
   reps            String   @default("10")
   tempo           String   @default("20X0")
@@ -258,6 +263,7 @@ model ExerciseLibrary {
   muscleGroup     String
   equipment       String
   hasVideoDemo    Boolean  @default(false)
+  videoUrl        String?  // YouTube URL or MP4 path
   defaultSets     Int      @default(3)
   defaultReps     String   @default("10")
   defaultTempo    String   @default("20X0")
@@ -401,3 +407,109 @@ model ActivityEvent {
   @@index([clientId])
   @@map("activity_events")
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Workout Log (completed workout sessions — for PR tracking + history)
+// ────────────────────────────────────────────────────────────────────────────
+model WorkoutLog {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  templateId      String?
+  template        WorkoutTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  title           String
+  durationMin     Int      @default(60)
+  completedAt     DateTime @default(now())
+  totalSets       Int      @default(0)
+  totalReps       Int      @default(0)
+  estimatedVolume Float    @default(0) // total kg lifted (sets × reps × weight)
+  notes           String?
+  // Individual set logs (for PR detection)
+  setLogs         SetLog[]
+  createdAt       DateTime @default(now())
+
+  @@index([clientId, completedAt])
+  @@index([templateId])
+  @@map("workout_logs")
+}
+
+model SetLog {
+  id              String   @id @default(cuid())
+  workoutLogId    String
+  workoutLog      WorkoutLog @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
+  exerciseName    String
+  setNumber       Int
+  reps            Int
+  weight          Float    @default(0) // kg
+  rpe             Int?
+  completedAt     DateTime @default(now())
+
+  @@index([workoutLogId])
+  @@index([exerciseName])
+  @@map("set_logs")
+}
+
+// Personal Record — auto-detected from SetLogs
+model PersonalRecord {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  exerciseName    String
+  weight          Float    // kg
+  reps            Int
+  // epley 1RM estimate = weight × (1 + reps/30)
+  estimated1RM    Float
+  achievedAt      DateTime @default(now())
+  setLogId        String?
+  createdAt       DateTime @default(now())
+
+  @@unique([clientId, exerciseName, reps]) // one PR per (client, exercise, rep range)
+  @@index([clientId, exerciseName])
+  @@map("personal_records")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Nutrition Log (daily macro tracking)
+// ────────────────────────────────────────────────────────────────────────────
+model NutritionLog {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date            DateTime @default(now())
+  // Macro targets (set by coach or auto-calculated)
+  calorieTarget   Int      @default(2500)
+  proteinTarget   Int      @default(180) // grams
+  carbTarget      Int      @default(250) // grams
+  fatTarget       Int      @default(80)  // grams
+  // Actual intake (logged by client)
+  calories        Int      @default(0)
+  protein         Int      @default(0)   // grams
+  carbs           Int      @default(0)   // grams
+  fat             Int      @default(0)   // grams
+  water           Float    @default(0)   // liters
+  // Meal entries (flexible — can be logged as individual meals)
+  meals           MealEntry[]
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([clientId, date])
+  @@index([clientId, date])
+  @@map("nutrition_logs")
+}
+
+model MealEntry {
+  id              String   @id @default(cuid())
+  nutritionLogId  String
+  nutritionLog    NutritionLog @relation(fields: [nutritionLogId], references: [id], onDelete: Cascade)
+  name            String   // e.g. "Breakfast", "Post-workout shake"
+  calories        Int      @default(0)
+  protein         Int      @default(0)
+  carbs           Int      @default(0)
+  fat             Int      @default(0)
+  loggedAt        DateTime @default(now())
+
+  @@index([nutritionLogId])
+  @@map("meal_entries")
+}
+

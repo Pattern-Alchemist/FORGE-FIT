@@ -2,14 +2,13 @@
 
 import * as React from 'react'
 import { motion } from 'framer-motion'
-import { Play, Flame, TrendingUp, MessageSquare, ClipboardCheck, ChevronRight, Dumbbell, CheckCircle2 } from 'lucide-react'
+import { Play, Flame, TrendingUp, MessageSquare, ClipboardCheck, ChevronRight, Dumbbell, CheckCircle2, Trophy, Apple } from 'lucide-react'
 import { useClientHomeStats, useClientWorkouts, useClientProfile } from '@/lib/hooks'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AdherenceRing } from '@/components/shared'
 import { cn } from '@/lib/utils'
-
-type Tab = 'home' | 'workout' | 'check-in' | 'messages'
+import type { Tab } from './app'
 
 export function ClientHome({
   onStartWorkout,
@@ -141,6 +140,28 @@ export function ClientHome({
           sub="Takes under 5 minutes"
           onClick={() => onNavigate('check-in')}
         />
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => onNavigate('progress')}
+            className="flex flex-col items-start gap-1.5 p-3 rounded-xl bg-card border border-border/60 hover:border-border transition-all tap-smooth text-left"
+          >
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+              <Trophy className="w-4 h-4 text-primary" />
+            </div>
+            <span className="text-xs font-medium text-foreground">PRs & History</span>
+            <span className="text-[10px] text-muted-foreground">Track progress</span>
+          </button>
+          <button
+            onClick={() => onNavigate('nutrition')}
+            className="flex flex-col items-start gap-1.5 p-3 rounded-xl bg-card border border-border/60 hover:border-border transition-all tap-smooth text-left"
+          >
+            <div className="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center">
+              <Apple className="w-4 h-4 text-success" />
+            </div>
+            <span className="text-xs font-medium text-foreground">Nutrition</span>
+            <span className="text-[10px] text-muted-foreground">Log meals</span>
+          </button>
+        </div>
         <QuickAction
           icon={MessageSquare}
           label="Message your coach"

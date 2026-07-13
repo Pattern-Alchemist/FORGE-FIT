@@ -193,6 +193,7 @@ export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
         muscle_group: e.muscleGroup,
         equipment: e.equipment,
         video_demo_placeholder: e.hasVideoDemo,
+        video_url: e.videoUrl ?? undefined,
         sets: e.sets,
         reps: e.reps,
         tempo: e.tempo,
@@ -235,6 +236,7 @@ export async function getWorkoutTemplate(templateId: string): Promise<WorkoutTem
         muscle_group: e.muscleGroup,
         equipment: e.equipment,
         video_demo_placeholder: e.hasVideoDemo,
+        video_url: e.videoUrl ?? undefined,
         sets: e.sets,
         reps: e.reps,
         tempo: e.tempo,
@@ -261,6 +263,7 @@ export async function getExerciseLibrary(): Promise<Exercise[]> {
     muscle_group: e.muscleGroup,
     equipment: e.equipment,
     video_demo_placeholder: e.hasVideoDemo,
+        video_url: e.videoUrl ?? undefined,
     sets: e.defaultSets,
     reps: e.defaultReps,
     tempo: e.defaultTempo,
@@ -477,6 +480,7 @@ export async function getMyWorkouts(): Promise<WorkoutTemplate[]> {
           muscle_group: e.muscleGroup,
           equipment: e.equipment,
           video_demo_placeholder: e.hasVideoDemo,
+        video_url: e.videoUrl ?? undefined,
           sets: e.sets,
           reps: e.reps,
           tempo: e.tempo,
@@ -545,5 +549,143 @@ export async function getClientHomeStats(): Promise<ClientHomeStats | null> {
     nextActionLabel: client.nextActionLabel,
     nextActionDue: client.nextActionDue,
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Workout logs + Personal Records (client-scoped)
+// ────────────────────────────────────────────────────────────────────────────
+export async function getMyWorkoutLogs() {
+  const clientId = await requireClientId()
+  const logs = await db.workoutLog.findMany({
+    where: { clientId },
+    orderBy: { completedAt: 'desc' },
+    take: 30,
+    include: { setLogs: { orderBy: { setNumber: 'asc' } } },
+  })
+  return logs.map((l) => ({
+    id: l.id,
+    client_id: l.clientId,
+    template_id: l.templateId ?? undefined,
+    title: l.title,
+    duration_min: l.durationMin,
+    completed_at: l.completedAt.toISOString(),
+    total_sets: l.totalSets,
+    total_reps: l.totalReps,
+    estimated_volume: l.estimatedVolume,
+    notes: l.notes ?? undefined,
+    set_logs: l.setLogs.map((s) => ({
+      id: s.id,
+      workout_log_id: s.workoutLogId,
+      exercise_name: s.exerciseName,
+      set_number: s.setNumber,
+      reps: s.reps,
+      weight: s.weight,
+      rpe: s.rpe ?? undefined,
+      completed_at: s.completedAt.toISOString(),
+    })),
+  }))
+}
+
+export async function getMyPersonalRecords() {
+  const clientId = await requireClientId()
+  const prs = await db.personalRecord.findMany({
+    where: { clientId },
+    orderBy: [{ exerciseName: 'asc' }, { reps: 'asc' }],
+  })
+  return prs.map((p) => ({
+    id: p.id,
+    client_id: p.clientId,
+    exercise_name: p.exerciseName,
+    weight: p.weight,
+    reps: p.reps,
+    estimated_1rm: p.estimated1RM,
+    achieved_at: p.achievedAt.toISOString(),
+  }))
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Nutrition logs (client-scoped)
+// ────────────────────────────────────────────────────────────────────────────
+export async function getMyNutritionLog(date?: string) {
+  const clientId = await requireClientId()
+  const targetDate = date ? new Date(date) : new Date()
+  const startOfDay = new Date(targetDate)
+  startOfDay.setHours(0, 0, 0, 0)
+  const endOfDay = new Date(targetDate)
+  endOfDay.setHours(23, 59, 59, 999)
+
+  let log = await db.nutritionLog.findFirst({
+    where: {
+      clientId,
+      date: { gte: startOfDay, lte: endOfDay },
+    },
+    include: { meals: { orderBy: { loggedAt: 'desc' } } },
+  })
+
+  // Auto-create today's log if it doesn't exist
+  if (!log) {
+    log = await db.nutritionLog.create({
+      data: {
+        clientId,
+        date: startOfDay,
+      },
+      include: { meals: true },
+    })
+  }
+
+  return {
+    id: log.id,
+    client_id: log.clientId,
+    date: log.date.toISOString(),
+    calorie_target: log.calorieTarget,
+    protein_target: log.proteinTarget,
+    carb_target: log.carbTarget,
+    fat_target: log.fatTarget,
+    calories: log.calories,
+    protein: log.protein,
+    carbs: log.carbs,
+    fat: log.fat,
+    water: log.water,
+    notes: log.notes ?? undefined,
+    meals: log.meals.map((m) => ({
+      id: m.id,
+      nutrition_log_id: m.nutritionLogId,
+      name: m.name,
+      calories: m.calories,
+      protein: m.protein,
+      carbs: m.carbs,
+      fat: m.fat,
+      logged_at: m.loggedAt.toISOString(),
+    })),
+  }
+}
+
+export async function getMyNutritionHistory(days = 7) {
+  const clientId = await requireClientId()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - days)
+  startDate.setHours(0, 0, 0, 0)
+
+  const logs = await db.nutritionLog.findMany({
+    where: {
+      clientId,
+      date: { gte: startDate },
+    },
+    orderBy: { date: 'asc' },
+  })
+  return logs.map((l) => ({
+    id: l.id,
+    client_id: l.clientId,
+    date: l.date.toISOString(),
+    calorie_target: l.calorieTarget,
+    protein_target: l.proteinTarget,
+    carb_target: l.carbTarget,
+    fat_target: l.fatTarget,
+    calories: l.calories,
+    protein: l.protein,
+    carbs: l.carbs,
+    fat: l.fat,
+    water: l.water,
+  }))
 }
 

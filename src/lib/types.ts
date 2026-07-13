@@ -93,6 +93,7 @@ export interface Exercise {
   muscle_group: string
   equipment: string
   video_demo_placeholder: boolean
+  video_url?: string // YouTube URL or MP4 path
   sets: number
   reps: string
   tempo: string
@@ -191,3 +192,68 @@ export type ScreenId =
   | 'check-ins'
   | 'messages'
   | 'settings'
+
+// ── New: Workout logging + PR tracking ──────────────────────────────────────
+export interface SetLog {
+  id: string
+  workout_log_id: string
+  exercise_name: string
+  set_number: number
+  reps: number
+  weight: number // kg
+  rpe?: number
+  completed_at: string
+}
+
+export interface WorkoutLog {
+  id: string
+  client_id: string
+  template_id?: string
+  title: string
+  duration_min: number
+  completed_at: string
+  total_sets: number
+  total_reps: number
+  estimated_volume: number
+  notes?: string
+  set_logs?: SetLog[]
+}
+
+export interface PersonalRecord {
+  id: string
+  client_id: string
+  exercise_name: string
+  weight: number
+  reps: number
+  estimated_1rm: number
+  achieved_at: string
+}
+
+// ── New: Nutrition tracking ─────────────────────────────────────────────────
+export interface MealEntry {
+  id: string
+  nutrition_log_id: string
+  name: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  logged_at: string
+}
+
+export interface NutritionLog {
+  id: string
+  client_id: string
+  date: string
+  calorie_target: number
+  protein_target: number
+  carb_target: number
+  fat_target: number
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  water: number
+  meals?: MealEntry[]
+  notes?: string
+}

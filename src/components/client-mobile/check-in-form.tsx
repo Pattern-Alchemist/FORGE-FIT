@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 
-type Tab = 'home' | 'workout' | 'check-in' | 'messages'
+import type { Tab } from './app'
 
 export function ClientCheckIn({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   const submitCheckIn = useSubmitCheckIn()

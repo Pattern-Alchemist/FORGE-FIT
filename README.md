@@ -155,7 +155,7 @@ No code changes needed — all queries use Prisma's typed client.
 
 ## Production checklist
 
-- [x] Real Prisma schema (11 entities, relations, indexes)
+- [x] Real Prisma schema (12 entities including User/auth, relations, indexes)
 - [x] Split persistence: Zustand for UI, React Query + server actions for data
 - [x] URL-addressable navigation (deep-linkable, refresh-safe)
 - [x] Zod validation shared between client and server
@@ -164,17 +164,54 @@ No code changes needed — all queries use Prisma's typed client.
 - [x] Loading + empty states on every data-driven screen
 - [x] Light + dark mode
 - [x] Mobile-first responsive (bottom nav, 44px tap targets)
-- [ ] NextAuth integration (deps installed, not wired)
-- [ ] Role boundaries (coach vs client views)
+- [x] NextAuth integration (credentials provider, JWT sessions, role-based access)
+- [x] Role boundaries (coach console vs client mobile app)
+- [x] Client mobile app (4 screens: Home, Workout logger, Check-in, Messages)
 - [ ] Rate limiting on API routes
 - [ ] Unit tests for store logic and selectors
 - [ ] E2E tests for main user paths
 - [ ] CI/CD pipeline
 
+## Auth
+
+NextAuth credentials provider with bcrypt-hashed passwords. Two roles:
+
+- **Coach** (`role: 'coach'`) → sees the coach dashboard (all clients, workouts, check-ins, messages)
+- **Client** (`role: 'client'`) → sees the client mobile app (own workouts, check-ins, messages)
+
+### Demo accounts
+
+| Role   | Email                      | Password    |
+| ------ | -------------------------- | ----------- |
+| Coach  | `marcus@forge.coach`       | `forge123`  |
+| Client | `elena@client.forge.coach` | `client123` |
+| Client | `daichi@client.forge.coach` | `client123` |
+| Client | `priya@client.forge.coach` | `client123` |
+
+The login screen has quick-fill buttons for both roles.
+
+### Env vars
+
+```
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=generate-with-openssl-rand-base64-32
+```
+
+## Client mobile app
+
+A separate consumer-facing experience at the same `/` route — role detected from session. 4 screens:
+
+1. **Home** — today's workout card with big Start button, streak/adherence/unread stats, quick actions
+2. **Workout** — set-by-set logger with rest timer, progress bar, complete button (fires `logWorkoutCompletionAction` → creates habit log + activity event for the coach)
+3. **Check-in** — under 5 min: weight + waist inputs, energy/sleep/mood sliders, notes, photo placeholder. Pre-fills from last check-in.
+4. **Messages** — simplified chat with coach. Auto-marks coach messages as read on open.
+
+Max-width 480px, bottom nav, 44px tap targets, one primary CTA per screen.
+
 ## What's still prototype-grade
 
-- **Auth**: `COACH_ID = 'c1'` is hardcoded in `src/lib/queries/index.ts` and `src/lib/actions/index.ts`. Replace with `next-auth` session user id.
-- **Client mobile view**: The current app is the coach console. A separate client-facing mobile flow (today's workout → mark complete → check-in → message) is the next big build.
 - **Search**: The top-bar `⌘K` search input is visual only — wire it to a `/api/search` endpoint.
 - **Real-time**: Messages are poll-based via React Query refetch. For true real-time, add Socket.io (deps installed, see `examples/websocket/`).
 - **File uploads**: Progress photos and message attachments are placeholders. Wire to S3/Cloudflare R2.
+- **Password reset**: Not implemented. Add NextAuth email provider or a custom reset flow.
+- **Client onboarding**: Clients must be created by the coach and seeded with a user account. No self-signup flow.

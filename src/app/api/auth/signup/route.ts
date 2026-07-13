@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
+import { sendEmail } from '@/lib/email'
+import { welcomeEmail } from '@/lib/email/templates'
+import { rateLimit, getClientIP, setRateLimitHeaders } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +25,19 @@ const signupSchema = z.object({
 })
 
 export async function POST(request: Request) {
+  // Rate limit: 5 signups per hour per IP
+  const ip = getClientIP(request)
+  const limit = rateLimit(`signup:${ip}`, { windowMs: 60 * 60 * 1000, max: 5 })
+  if (!limit.success) {
+    const res = NextResponse.json(
+      { error: 'Too many signups from this IP. Try again later.' },
+      { status: 429 },
+    )
+    setRateLimitHeaders(res, limit)
+    res.headers.set('Retry-After', String(Math.ceil((limit.resetTime - Date.now()) / 1000)))
+    return res
+  }
+
   try {
     const body = await request.json()
     const parsed = signupSchema.safeParse(body)
@@ -83,6 +99,15 @@ export async function POST(request: Request) {
         role: 'client',
         clientId: client.id,
       },
+    })
+
+    // Send welcome email (logs to console in dev)
+    const { html, text } = welcomeEmail(fullName, coach.name)
+    await sendEmail({
+      to: email.toLowerCase(),
+      subject: `Welcome to Forge, ${fullName}!`,
+      html,
+      text,
     })
 
     return NextResponse.json({

@@ -3,7 +3,8 @@ import { writeFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { requireCoachId, requireClientId, getSession } from '@/lib/session'
+import { getSession } from '@/lib/session'
+import { rateLimit, getClientIP, setRateLimitHeaders } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,19 @@ const MAX_SIZE = 10 * 1024 * 1024 // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 
 export async function POST(request: Request) {
+  // Rate limit: 30 uploads per hour per IP
+  const ip = getClientIP(request)
+  const limit = rateLimit(`upload:${ip}`, { windowMs: 60 * 60 * 1000, max: 30 })
+  if (!limit.success) {
+    const res = NextResponse.json(
+      { error: 'Too many uploads. Try again later.' },
+      { status: 429 },
+    )
+    setRateLimitHeaders(res, limit)
+    res.headers.set('Retry-After', String(Math.ceil((limit.resetTime - Date.now()) / 1000)))
+    return res
+  }
+
   try {
     // Auth check — both coaches and clients can upload
     const session = await getSession()

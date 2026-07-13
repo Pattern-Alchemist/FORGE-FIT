@@ -61,3 +61,11 @@ db/*.db-journal
 
 # Seed fixture (regenerate with `bun run scripts/build-seed-fixture.ts`)
 scripts/seed-data.json
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+playwright/.cache/
+*.db
+*.db-journal

@@ -167,10 +167,16 @@ No code changes needed — all queries use Prisma's typed client.
 - [x] NextAuth integration (credentials provider, JWT sessions, role-based access)
 - [x] Role boundaries (coach console vs client mobile app)
 - [x] Client mobile app (4 screens: Home, Workout logger, Check-in, Messages)
-- [ ] Rate limiting on API routes
-- [ ] Unit tests for store logic and selectors
-- [ ] E2E tests for main user paths
-- [ ] CI/CD pipeline
+- [x] Real-time messaging (Socket.io mini-service)
+- [x] ⌘K command palette search
+- [x] File uploads (progress photos)
+- [x] Password reset flow
+- [x] Client self-signup
+- [x] Email service (Resend with dev fallback)
+- [x] Rate limiting on auth + upload endpoints
+- [x] Unit tests (77 Vitest tests)
+- [x] E2E tests (Playwright suites)
+- [x] CI/CD pipeline (GitHub Actions)
 
 ## Auth
 
@@ -215,12 +221,86 @@ Max-width 480px, bottom nav, 44px tap targets, one primary CTA per screen.
 - ~~File uploads~~ → ✅ /api/upload route + wired into check-in photos (local storage; swap to S3/R2 for prod)
 - ~~Password reset~~ → ✅ forgot-password + reset-password endpoints + 4-mode auth screen
 - ~~Client self-signup~~ → ✅ /api/auth/signup creates Client + User records
-- **Email service**: Password reset tokens are logged to console in dev. Wire to Resend/SMTP for prod.
-- **Rate limiting**: No rate limiting on API routes yet.
-- **Tests**: No unit/e2e tests yet.
-- **CI/CD**: No pipeline yet.
+- ~~Email service~~ → ✅ Resend integration with HTML templates (dev: console fallback)
+- ~~Rate limiting~~ → ✅ In-memory limiter on auth + upload endpoints (429 with Retry-After)
+- ~~Unit tests~~ → ✅ 77 Vitest tests (schemas, store, rate-limit, email, upload)
+- ~~E2E tests~~ → ✅ Playwright suites (auth, coach flows, client mobile)
+- ~~CI/CD~~ → ✅ GitHub Actions (lint, tsc, unit tests, build, E2E)
 
-### Real-time messaging
+### Email service
+
+Resend integration in `src/lib/email/`:
+- `sendEmail()` — sends via Resend if `RESEND_API_KEY` is set, otherwise logs to console
+- HTML + text templates for password reset and welcome emails
+- forgot-password endpoint sends real email with reset link
+- signup endpoint sends welcome email to new clients
+
+Env vars (both optional in dev):
+```
+RESEND_API_KEY=re_xxx
+FROM_EMAIL=forge@yourdomain.com
+```
+
+### Rate limiting
+
+In-memory sliding-window rate limiter in `src/lib/rate-limit.ts`:
+- `rateLimit(identifier, { windowMs, max })` → returns `{ success, limit, remaining, resetTime }`
+- `getClientIP(request)` → extracts IP from headers
+- `setRateLimitHeaders(res, result)` → adds `X-RateLimit-*` headers
+
+Applied to:
+| Endpoint | Limit | Window |
+|----------|-------|--------|
+| `/api/auth/forgot-password` | 5 | per hour |
+| `/api/auth/reset-password` | 10 | per hour |
+| `/api/auth/signup` | 5 | per hour |
+| `/api/upload` | 30 | per hour |
+
+Returns `429 Too Many Requests` with `Retry-After` header when exceeded.
+
+Production: swap for Upstash Redis rate limiter for distributed limiting.
+
+### Testing
+
+```bash
+# Unit tests (Vitest)
+bun run test              # run once
+bun run test:watch        # watch mode
+bun run test:coverage     # with coverage report
+
+# E2E tests (Playwright)
+npx playwright test       # runs all e2e suites
+npx playwright test --ui  # interactive UI mode
+```
+
+**Unit tests** (77 passing):
+- `schemas.test.ts` — Zod validation for all entity types (40 tests)
+- `store.test.ts` — Zustand UI store: navigation, builder, filters (19 tests)
+- `rate-limit.test.ts` — rate limiter logic (7 tests)
+- `email.test.ts` — email template generation (8 tests)
+- `upload.test.ts` — uploadFile helper (3 tests)
+
+**E2E tests** (Playwright):
+- `auth.spec.ts` — login, signup, forgot-password, demo accounts, invalid creds, role redirect
+- `coach.spec.ts` — dashboard KPIs, sidebar nav, ⌘K palette, clients list (search/filter), client detail tabs, workout builder, dark mode
+- `client.spec.ts` — client mobile app (home, workout logger, check-in form, messages, sign out)
+
+### CI/CD
+
+GitHub Actions workflows in `.github/workflows/`:
+
+**`ci.yml`** (runs on push + PR to main):
+1. Lint & Type Check — `bun run lint` + `npx tsc --noEmit`
+2. Unit Tests — `bun run test` with coverage upload
+3. Build — `bun run build` (depends on 1 + 2 passing)
+
+**`e2e.yml`** (runs on push + PR to main):
+1. Setup DB (push schema + seed)
+2. Install Playwright chromium
+3. Run E2E tests with seeded DB
+4. Upload playwright report as artifact
+
+Both workflows use `oven-sh/setup-bun` and cache dependencies.
 
 Socket.io mini-service in `mini-services/chat-service/`:
 - Port 3003: Socket.io server (clients connect via `io('/?XTransformPort=3003')`)

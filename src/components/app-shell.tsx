@@ -16,12 +16,15 @@ import {
   Bell,
   Plus,
 } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import type { ScreenId } from '@/lib/types'
+import { useUIStore } from '@/lib/store'
+import { useUrlStateSync } from '@/lib/url-state'
+import { useCoach, useTasks, useMessages } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+
+type ScreenId = 'dashboard' | 'clients' | 'client-detail' | 'workout-builder' | 'check-ins' | 'messages' | 'settings'
 
 interface NavItem {
   id: ScreenId
@@ -35,33 +38,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = React.useState(false)
   React.useEffect(() => setMounted(true), [])
 
-  const screen = useStore((s) => s.screen)
-  const setScreen = useStore((s) => s.setScreen)
-  const clients = useStore((s) => s.clients)
-  const messages = useStore((s) => s.messages)
-  const checkIns = useStore((s) => s.checkIns)
-  const coach = useStore((s) => s.coach)
-  const setBuilder = useStore((s) => s.setBuilder)
+  // Sync URL <-> store
+  useUrlStateSync()
 
-  const unreadCount = messages.filter((m) => !m.read_status && m.sender_type === 'client').length
-  const pendingCheckIns = checkIns.filter((ci) => ci.status === 'pending').length
+  // Read UI state from store (UI-only)
+  const screen = useUIStore((s) => s.screen)
+  const setScreen = useUIStore((s) => s.setScreen)
+  const setBuilder = useUIStore((s) => s.setBuilder)
+
+  // Read server data via React Query
+  const { data: coach } = useCoach()
+  const { data: tasks = [] } = useTasks()
+  const { data: messages = [] } = useMessages(null) // we use a separate query per-conversation, so this is unused; kept for global counts via stats
+
+  // For nav badges, use derived counts (pending tasks counts as quick proxy)
+  // Note: dashboard stats already fetch precise counts — keep nav lightweight.
+  const pendingTaskCount = tasks.filter((t) => !t.completed).length
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'clients', label: 'Clients', icon: Users, badge: clients.filter((c) => c.status === 'active').length },
+    { id: 'clients', label: 'Clients', icon: Users },
     { id: 'workout-builder', label: 'Builder', icon: Dumbbell },
-    { id: 'check-ins', label: 'Check-ins', icon: ClipboardCheck, badge: pendingCheckIns },
-    { id: 'messages', label: 'Messages', icon: MessageSquare, badge: unreadCount },
+    { id: 'check-ins', label: 'Check-ins', icon: ClipboardCheck },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'settings', label: 'Settings', icon: Settings },
   ]
 
-  // Mobile nav (5 items max for bottom bar)
   const mobileNav: NavItem[] = [
     { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
     { id: 'clients', label: 'Clients', icon: Users },
     { id: 'workout-builder', label: 'Build', icon: Dumbbell },
-    { id: 'check-ins', label: 'Check-ins', icon: ClipboardCheck, badge: pendingCheckIns },
-    { id: 'messages', label: 'Messages', icon: MessageSquare, badge: unreadCount },
+    { id: 'check-ins', label: 'Check-ins', icon: ClipboardCheck, badge: pendingTaskCount },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
   ]
 
   const handleNav = (id: ScreenId) => {
@@ -147,12 +155,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Avatar className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-primary/70">
               <AvatarFallback className="bg-transparent text-primary-foreground text-xs font-semibold rounded-lg">
-                {coach.avatar}
+                {coach?.avatar ?? 'MV'}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 text-left min-w-0">
-              <div className="text-sm font-medium text-foreground truncate">{coach.name}</div>
-              <div className="text-xs text-muted-foreground truncate">{coach.business_name}</div>
+              <div className="text-sm font-medium text-foreground truncate">{coach?.name ?? 'Coach'}</div>
+              <div className="text-xs text-muted-foreground truncate">{coach?.business_name ?? ''}</div>
             </div>
             <Settings className="w-4 h-4 text-muted-foreground" />
           </button>
@@ -211,7 +219,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
             <div className="w-px h-6 bg-border mx-1" />
             <Badge variant="outline" className="rounded-md bg-muted/50 font-medium uppercase tracking-wide text-[10px]">
-              {coach.subscription_plan}
+              {coach?.subscription_plan ?? 'Performance'}
             </Badge>
           </div>
         </header>
@@ -223,7 +231,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-background/95 backdrop-blur-xl border-t border-border/60 safe-area-pb">
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-background/95 backdrop-blur-xl border-t border-border/60" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="grid grid-cols-5 h-16">
           {mobileNav.map((item) => {
             const Icon = item.icon

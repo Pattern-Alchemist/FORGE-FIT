@@ -1,8 +1,17 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Forge — Coaching OS Prisma schema
+// Full domain model: Coach, Client, Program, WorkoutTemplate, WorkoutBlock,
+// Exercise, CheckIn, Message, HabitLog, SavedReply, Task, ActivityEvent.
+//
+// Designed for SQLite now (sandbox) but trivially portable to Postgres:
+// - Uses String for enums (with @relation and explicit ids)
+// - No JSON columns (uses related tables for blocks/exercises)
+// - All foreign keys have indexes
+//
+// Postgres migration notes:
+//   1. Change `provider = "sqlite"` to `provider = "postgresql"`
+//   2. Add `previewFeatures = ["fullTextSearch"]` if using search
+//   3. (Optional) Replace String enum fields with `@db.VarChar(...)` constraints
+//   4. Run `prisma migrate dev --name init_postgres`
 
 generator client {
   provider = "prisma-client-js"
@@ -13,20 +22,356 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// ────────────────────────────────────────────────────────────────────────────
+// Coach / User
+// ────────────────────────────────────────────────────────────────────────────
+model Coach {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  name            String
+  avatar          String   @default("") // initials or image URL
+  businessName    String   @default("")
+  accentColor     String   @default("#E8593A")
+  subscriptionPlan String  @default("Solo") // Solo | Studio | Performance
+  // Notification settings stored as a 1:1 relation for type safety
+  notifications   CoachNotifications?
+  settings        CoachSettings?
+  // Relations
+  clients         Client[]
+  programs        Program[]
+  templates       WorkoutTemplate[]
+  messages        Message[]   @relation("CoachMessages")
+  tasks           Task[]
+  activityEvents  ActivityEvent[]
+  checkInResponses CheckIn[] // coach_response is set by this coach
+  exerciseLibrary ExerciseLibrary[]
+  savedReplies    SavedReply[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("coaches")
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model CoachNotifications {
+  coachId           String  @id
+  coach             Coach   @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  newCheckIns       Boolean @default(true)
+  unreadMessages    Boolean @default(true)
+  lowAdherence      Boolean @default(true)
+  weeklySummary     Boolean @default(true)
+
+  @@map("coach_notifications")
+}
+
+model CoachSettings {
+  coachId           String  @id
+  coach             Coach   @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  theme             String  @default("system") // light | dark | system
+
+  @@map("coach_settings")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Client
+// ────────────────────────────────────────────────────────────────────────────
+model Client {
+  id                  String   @id @default(cuid())
+  coachId             String
+  coach               Coach    @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  fullName            String
+  avatar              String   @default("") // initials
+  age                 Int
+  gender              String   @default("NB") // M | F | NB
+  goal                String   // Hypertrophy | Fat Loss | Strength | General Fitness | Athletic Performance | Recomposition
+  trainingPhase       String   // Foundation | Volume Block | Intensity Block | Peaking | Deload | Maintenance
+  status              String   @default("active") // active | paused | completed
+  joinDate            DateTime @default(now())
+  adherenceScore      Int      @default(80) // 0-100
+  weeklyStreak        Int      @default(0)
+  injuries            String   @default("[]") // JSON string array — SQLite has no native array
+  coachNotes          String   @default("")
+  tags                String   @default("[]") // JSON string array
+  // Next action (denormalized for quick surfacing)
+  nextActionType      String?  // review_check_in | update_workout | reply_message | start_program
+  nextActionLabel     String?
+  nextActionDue       String?
+  lastActivityAt      DateTime?
+  workoutDueToday     Boolean  @default(false)
+  // Relations
+  programs            Program[]
+  checkIns            CheckIn[]
+  messages            Message[]
+  habitLogs           HabitLog[]
+  tasks               Task[]
+  activityEvents      ActivityEvent[]
+  assignedTemplates   WorkoutTemplateAssignment[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([coachId, status])
+  @@index([coachId, goal])
+  @@map("clients")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Program (assigned to a client)
+// ────────────────────────────────────────────────────────────────────────────
+model Program {
+  id                String   @id @default(cuid())
+  clientId          String
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  coachId           String
+  coach             Coach    @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  title             String
+  goal              String
+  phase             String
+  startDate         DateTime
+  endDate           DateTime
+  weeks             Int      @default(12)
+  isActive          Boolean  @default(true)
+  // Many-to-many between Program and WorkoutTemplate
+  templateAssignments WorkoutTemplateAssignment[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([coachId])
+  @@map("programs")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Workout Template (reusable program building block)
+// ────────────────────────────────────────────────────────────────────────────
+model WorkoutTemplate {
+  id              String   @id @default(cuid())
+  coachId         String
+  coach           Coach    @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  title           String
+  category        String   // e.g. "Strength", "Lower Body", "Conditioning"
+  duration        Int      @default(60) // minutes
+  blocks          WorkoutBlock[]
+  programLinks    WorkoutTemplateAssignment[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([coachId])
+  @@map("workout_templates")
+}
+
+// Many-to-many: WorkoutTemplate <-> Program (a template can be in many programs,
+// a program can include many templates)
+model WorkoutTemplateAssignment {
+  id              String   @id @default(cuid())
+  templateId      String
+  template        WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  programId       String
+  program         Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sortOrder       Int      @default(0)
+  assignedAt      DateTime @default(now())
+
+  @@index([templateId])
+  @@index([programId])
+  @@index([clientId])
+  @@map("workout_template_assignments")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Workout Block (within a template)
+// ────────────────────────────────────────────────────────────────────────────
+model WorkoutBlock {
+  id              String   @id @default(cuid())
+  templateId      String
+  template        WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  blockType       String   // warmup | strength | accessory | conditioning | cooldown
+  sortOrder       Int      @default(0)
+  notes           String?
+  exercises       Exercise[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([templateId])
+  @@map("workout_blocks")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Exercise (within a block)
+// ────────────────────────────────────────────────────────────────────────────
+model Exercise {
+  id              String   @id @default(cuid())
+  // Library reference (for re-use across blocks) — nullable so blocks can have one-off entries
+  libraryId       String?
+  blockId         String
+  block           WorkoutBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  name            String
+  muscleGroup     String
+  equipment       String
+  hasVideoDemo    Boolean  @default(false)
+  sets            Int      @default(3)
+  reps            String   @default("10")
+  tempo           String   @default("20X0")
+  restSeconds     Int      @default(90)
+  rpe             Int      @default(7)
+  notes           String?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([blockId])
+  @@index([libraryId])
+  @@map("exercises")
+}
+
+// Exercise library — canonical list of exercises the coach can pull from
+model ExerciseLibrary {
+  id              String   @id @default(cuid())
+  coachId         String
+  coach           Coach    @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  name            String
+  muscleGroup     String
+  equipment       String
+  hasVideoDemo    Boolean  @default(false)
+  defaultSets     Int      @default(3)
+  defaultReps     String   @default("10")
+  defaultTempo    String   @default("20X0")
+  defaultRest     Int      @default(90)
+  defaultRpe      Int      @default(7)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([coachId, name])
+  @@index([coachId, name])
+  @@map("exercise_library")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Check-in (weekly client self-report)
+// ────────────────────────────────────────────────────────────────────────────
+model CheckIn {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date            DateTime @default(now())
+  bodyWeight      Float
+  waist           Float?
+  chest           Float?
+  arms            Float?
+  thighs          Float?
+  energyScore     Int      // 1-10
+  sleepScore      Int      // 1-10
+  moodScore       Int      // 1-10
+  adherencePercent Int     // 0-100
+  hasProgressPhoto Boolean @default(false)
+  clientNotes     String   @default("")
+  coachResponse   String?
+  coachId         String?
+  coach           Coach?   @relation(fields: [coachId], references: [id], onDelete: SetNull)
+  status          String   @default("pending") // pending | reviewed
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clientId, date])
+  @@index([status])
+  @@map("check_ins")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Message (coach <-> client chat)
+// ────────────────────────────────────────────────────────────────────────────
+model Message {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  coachId         String?
+  coach           Coach?   @relation("CoachMessages", fields: [coachId], references: [id], onDelete: SetNull)
+  senderType      String   // coach | client
+  messageText     String
+  hasAttachment   Boolean  @default(false)
+  readStatus      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([coachId])
+  @@map("messages")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Habit Log (daily non-workout metrics)
+// ────────────────────────────────────────────────────────────────────────────
+model HabitLog {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date            DateTime @default(now())
+  steps           Int      @default(0)
+  water           Float    @default(0) // liters
+  protein         Int      @default(0) // grams
+  sleepHours      Float    @default(0)
+  workoutCompleted Boolean @default(false)
+  createdAt       DateTime @default(now())
+
+  @@unique([clientId, date])
+  @@index([clientId, date])
+  @@map("habit_logs")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Saved Reply (coach's reusable message templates)
+// ────────────────────────────────────────────────────────────────────────────
+model SavedReply {
+  id              String   @id @default(cuid())
+  coachId         String
+  coach           Coach    @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  title           String
+  body            String
+  category        String   @default("check_in") // check_in | motivation | form | logistics
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([coachId, category])
+  @@map("saved_replies")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Task (coach's action items)
+// ────────────────────────────────────────────────────────────────────────────
+model Task {
+  id              String   @id @default(cuid())
+  coachId         String
+  coach           Coach    @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type            String   // review_check_in | update_workout | reply_message | start_program
+  label           String
+  due             String
+  priority        String   @default("medium") // high | medium | low
+  completed       Boolean  @default(false)
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([coachId, completed])
+  @@index([clientId])
+  @@map("tasks")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Activity Event (recent activity feed)
+// ────────────────────────────────────────────────────────────────────────────
+model ActivityEvent {
+  id              String   @id @default(cuid())
+  coachId         String
+  coach           Coach    @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type            String   // check_in | workout_complete | message | program_start | adherence_drop
+  label           String
+  timestamp       DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([coachId, timestamp])
+  @@index([clientId])
+  @@map("activity_events")
 }

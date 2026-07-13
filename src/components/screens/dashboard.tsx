@@ -16,33 +16,33 @@ import {
   ChevronRight,
   Activity,
 } from 'lucide-react'
-import { useStore } from '@/lib/store'
+import { useUIStore } from '@/lib/store'
+import {
+  useCoach,
+  useClients,
+  useTasks,
+  useActivityEvents,
+  useDashboardStats,
+  useToggleTask,
+} from '@/lib/hooks'
 import { KPICard, AdherenceRing, GoalTag, StatusTag } from '@/components/shared'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export function Dashboard() {
-  const coach = useStore((s) => s.coach)
-  const clients = useStore((s) => s.clients)
-  const tasks = useStore((s) => s.tasks)
-  const toggleTask = useStore((s) => s.toggleTask)
-  const activityEvents = useStore((s) => s.activityEvents)
-  const messages = useStore((s) => s.messages)
-  const checkIns = useStore((s) => s.checkIns)
-  const openClient = useStore((s) => s.openClient)
-  const setScreen = useStore((s) => s.setScreen)
-  const openConversation = useStore((s) => s.openConversation)
+  const { data: coach } = useCoach()
+  const { data: clients = [], isLoading: clientsLoading } = useClients()
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks()
+  const { data: activity = [] } = useActivityEvents()
+  const { data: stats } = useDashboardStats()
+  const toggleTask = useToggleTask()
 
-  const activeClients = clients.filter((c) => c.status === 'active').length
-  const workoutsDueToday = clients.filter((c) => c.workout_due_today).length
-  const unreadMessages = messages.filter((m) => !m.read_status && m.sender_type === 'client').length
-  const pendingCheckIns = checkIns.filter((ci) => ci.status === 'pending').length
-  const avgAdherence = Math.round(
-    clients.filter((c) => c.status === 'active').reduce((sum, c) => sum + c.adherence_score, 0) /
-      Math.max(1, activeClients),
-  )
+  const openClient = useUIStore((s) => s.openClient)
+  const setScreen = useUIStore((s) => s.setScreen)
+  const openConversation = useUIStore((s) => s.openConversation)
 
   const pendingTasks = tasks.filter((t) => !t.completed)
   const completedToday = tasks.filter((t) => t.completed).length
@@ -82,11 +82,11 @@ export function Dashboard() {
           <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} · All systems on track</span>
         </div>
         <h1 className="text-display text-2xl lg:text-[32px] text-foreground">
-          {greeting}, {coach.name.split(' ')[0]}.
+          {greeting}, {coach?.name.split(' ')[0] ?? 'Coach'}.
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           You have <span className="font-semibold text-foreground">{pendingTasks.length} tasks</span> waiting and{' '}
-          <span className="font-semibold text-foreground">{pendingCheckIns} check-ins</span> to review today.
+          <span className="font-semibold text-foreground">{stats?.pendingCheckIns ?? 0} check-ins</span> to review today.
         </p>
       </motion.div>
 
@@ -95,7 +95,7 @@ export function Dashboard() {
         <motion.div custom={0} variants={fadeUp} initial="hidden" animate="show">
           <KPICard
             label="Active Clients"
-            value={activeClients}
+            value={stats?.activeClients ?? '—'}
             icon={Users}
             trend={{ value: '+1', direction: 'up', good: true }}
             hint="1 paused, 1 completed"
@@ -105,19 +105,19 @@ export function Dashboard() {
         <motion.div custom={1} variants={fadeUp} initial="hidden" animate="show">
           <KPICard
             label="Workouts Due Today"
-            value={workoutsDueToday}
+            value={stats?.workoutsDueToday ?? '—'}
             icon={Dumbbell}
             accent
-            hint="Across 7 clients"
+            hint="Across active clients"
             onClick={() => setScreen('workout-builder')}
           />
         </motion.div>
         <motion.div custom={2} variants={fadeUp} initial="hidden" animate="show">
           <KPICard
             label="Pending Check-ins"
-            value={pendingCheckIns}
+            value={stats?.pendingCheckIns ?? '—'}
             icon={ClipboardCheck}
-            trend={{ value: '2 new', direction: 'up', good: false }}
+            trend={stats?.pendingCheckIns ? { value: `${stats.pendingCheckIns} new`, direction: 'up', good: false } : undefined}
             hint="Review queue"
             onClick={() => setScreen('check-ins')}
           />
@@ -125,16 +125,16 @@ export function Dashboard() {
         <motion.div custom={3} variants={fadeUp} initial="hidden" animate="show">
           <KPICard
             label="Unread Messages"
-            value={unreadMessages}
+            value={stats?.unreadMessages ?? '—'}
             icon={MessageSquare}
-            hint="From 4 clients"
+            hint="From clients"
             onClick={() => setScreen('messages')}
           />
         </motion.div>
         <motion.div custom={4} variants={fadeUp} initial="hidden" animate="show">
           <KPICard
             label="Avg Adherence"
-            value={`${avgAdherence}%`}
+            value={stats ? `${stats.avgAdherence}%` : '—'}
             icon={TrendingUp}
             trend={{ value: '2.4pts', direction: 'up', good: true }}
             hint="Rolling 30-day"
@@ -163,12 +163,12 @@ export function Dashboard() {
                 <div className="text-right">
                   <div className="text-xs text-muted-foreground">Progress</div>
                   <div className="text-sm font-semibold tabular-nums">
-                    {completedToday}/{tasks.length}
+                    {completedToday}/{tasks.length || 0}
                   </div>
                 </div>
                 <div className="w-12 h-12">
                   <AdherenceRing
-                    score={Math.round((completedToday / tasks.length) * 100)}
+                    score={tasks.length ? Math.round((completedToday / tasks.length) * 100) : 0}
                     size={48}
                     stroke={4}
                   />
@@ -177,7 +177,18 @@ export function Dashboard() {
             </div>
           </div>
           <div className="divide-y divide-border/60 max-h-[480px] overflow-y-auto">
-            {pendingTasks.length === 0 ? (
+            {tasksLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 p-4 lg:px-6">
+                  <Skeleton className="w-5 h-5 rounded-full" />
+                  <Skeleton className="w-9 h-9 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                </div>
+              ))
+            ) : pendingTasks.length === 0 ? (
               <div className="p-8 flex flex-col items-center text-center">
                 <CheckCircle2 className="w-8 h-8 text-success mb-2" />
                 <p className="text-sm font-medium text-foreground">All caught up</p>
@@ -208,7 +219,7 @@ export function Dashboard() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        toggleTask(task.id)
+                        toggleTask.mutate({ taskId: task.id, completed: !task.completed })
                       }}
                       className="shrink-0"
                       aria-label="Mark complete"
@@ -258,7 +269,17 @@ export function Dashboard() {
               <span className="ml-auto text-xs text-muted-foreground">{flaggedClients.length}</span>
             </div>
             <div className="space-y-2">
-              {flaggedClients.length === 0 ? (
+              {clientsLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-2.5">
+                    <Skeleton className="w-7 h-7 rounded-md" />
+                    <div className="flex-1 space-y-1">
+                      <Skeleton className="h-2.5 w-24" />
+                      <Skeleton className="h-2 w-32" />
+                    </div>
+                  </div>
+                ))
+              ) : flaggedClients.length === 0 ? (
                 <p className="text-xs text-muted-foreground py-4 text-center">Nothing flagged today.</p>
               ) : (
                 flaggedClients.slice(0, 4).map((c) => (
@@ -295,7 +316,7 @@ export function Dashboard() {
               <h3 className="text-sm font-semibold text-foreground">Recent Activity</h3>
             </div>
             <div className="space-y-3">
-              {activityEvents.slice(0, 6).map((ev) => {
+              {activity.slice(0, 6).map((ev) => {
                 const client = clients.find((c) => c.id === ev.client_id)
                 if (!client) return null
                 const iconBg =
@@ -357,38 +378,51 @@ export function Dashboard() {
           </Button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {topMovers.map((c, i) => (
-            <button
-              key={c.id}
-              onClick={() => openClient(c.id)}
-              className="text-left p-3 rounded-lg border border-border/60 hover:border-border hover:bg-muted/30 transition-all tap-smooth group"
-            >
-              <div className="flex items-center gap-2.5 mb-3">
-                <Avatar className="w-9 h-9 rounded-lg">
-                  <AvatarFallback className="bg-muted text-foreground text-[11px] font-semibold rounded-lg">
-                    {c.avatar}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-foreground truncate">{c.full_name}</div>
-                  <GoalTag goal={c.goal} />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-medium">#{i + 1}</span>
-              </div>
-              <div className="flex items-end justify-between">
-                <div>
-                  <div className="text-xl font-semibold tabular-nums text-foreground">{c.weekly_streak}</div>
-                  <div className="text-[10px] text-muted-foreground">week streak</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs font-semibold tabular-nums" style={{ color: 'var(--success)' }}>
-                    {c.adherence_score}%
+          {clientsLoading
+            ? Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="p-3 rounded-lg border border-border/60">
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <Skeleton className="w-9 h-9 rounded-lg" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-2.5 w-20" />
+                      <Skeleton className="h-2 w-16" />
+                    </div>
                   </div>
-                  <div className="text-[10px] text-muted-foreground">adherence</div>
+                  <Skeleton className="h-6 w-24" />
                 </div>
-              </div>
-            </button>
-          ))}
+              ))
+            : topMovers.map((c, i) => (
+                <button
+                  key={c.id}
+                  onClick={() => openClient(c.id)}
+                  className="text-left p-3 rounded-lg border border-border/60 hover:border-border hover:bg-muted/30 transition-all tap-smooth group"
+                >
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <Avatar className="w-9 h-9 rounded-lg">
+                      <AvatarFallback className="bg-muted text-foreground text-[11px] font-semibold rounded-lg">
+                        {c.avatar}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-foreground truncate">{c.full_name}</div>
+                      <GoalTag goal={c.goal} />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-medium">#{i + 1}</span>
+                  </div>
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <div className="text-xl font-semibold tabular-nums text-foreground">{c.weekly_streak}</div>
+                      <div className="text-[10px] text-muted-foreground">week streak</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs font-semibold tabular-nums" style={{ color: 'var(--success)' }}>
+                        {c.adherence_score}%
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">adherence</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
         </div>
       </motion.div>
     </div>

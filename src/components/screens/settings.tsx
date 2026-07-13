@@ -4,7 +4,6 @@ import * as React from 'react'
 import { useTheme } from 'next-themes'
 import {
   User,
-  Building2,
   Bell,
   Palette,
   Moon,
@@ -18,13 +17,14 @@ import {
   LogOut,
   ChevronRight,
 } from 'lucide-react'
-import { useStore } from '@/lib/store'
+import { useCoach } from '@/lib/hooks'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 const ACCENT_PRESETS = [
@@ -37,19 +37,45 @@ const ACCENT_PRESETS = [
 ]
 
 export function Settings() {
-  const coach = useStore((s) => s.coach)
+  const { data: coach, isLoading } = useCoach()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
   React.useEffect(() => setMounted(true), [])
 
-  const [accent, setAccent] = React.useState(coach.accent_color)
-  const [notifications, setNotifications] = React.useState(coach.settings.notifications)
-  const [businessName, setBusinessName] = React.useState(coach.business_name)
+  const [accent, setAccent] = React.useState(coach?.accent_color ?? '#E8593A')
+  const [notifications, setNotifications] = React.useState({
+    new_check_ins: true,
+    unread_messages: true,
+    low_adherence: true,
+    weekly_summary: true,
+  })
+  const [businessName, setBusinessName] = React.useState(coach?.business_name ?? '')
   const [saved, setSaved] = React.useState(false)
+
+  // Sync local state when coach data arrives
+  React.useEffect(() => {
+    if (coach) {
+      setAccent(coach.accent_color)
+      setBusinessName(coach.business_name)
+      setNotifications(coach.settings.notifications)
+    }
+  }, [coach])
 
   const handleSave = () => {
     setSaved(true)
     setTimeout(() => setSaved(false), 1800)
+    // TODO: wire to updateCoachAction when auth is added
+  }
+
+  if (isLoading || !coach) {
+    return (
+      <div className="px-4 lg:px-8 py-8 max-w-3xl mx-auto space-y-6">
+        <Skeleton className="h-8 w-40" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-48 w-full rounded-xl" />
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -85,7 +111,7 @@ export function Settings() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Full name" defaultValue={coach.name} />
             <Field label="Email" defaultValue={coach.email} type="email" />
-            <Field label="Business name" defaultValue={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+            <Field label="Business name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
             <Field label="Phone" defaultValue="+1 (555) 0142" />
           </div>
         </Section>

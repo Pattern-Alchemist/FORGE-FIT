@@ -1,6 +1,7 @@
 'use client'
 
-import { useStore } from '@/lib/store'
+import { Suspense } from 'react'
+import { useUIStore } from '@/lib/store'
 import { AppShell } from '@/components/app-shell'
 import { Dashboard } from '@/components/screens/dashboard'
 import { Clients } from '@/components/screens/clients'
@@ -11,17 +12,19 @@ import { Messages } from '@/components/screens/messages'
 import { Settings } from '@/components/screens/settings'
 
 export default function Home() {
-  const screen = useStore((s) => s.screen)
+  const screen = useUIStore((s) => s.screen)
 
   return (
     <AppShell>
-      {screen === 'dashboard' && <Dashboard />}
-      {screen === 'clients' && <Clients />}
-      {screen === 'client-detail' && <ClientDetail />}
-      {screen === 'workout-builder' && <WorkoutBuilder />}
-      {screen === 'check-ins' && <CheckIns />}
-      {screen === 'messages' && <Messages />}
-      {screen === 'settings' && <Settings />}
+      <Suspense fallback={null}>
+        {screen === 'dashboard' && <Dashboard />}
+        {screen === 'clients' && <Clients />}
+        {screen === 'client-detail' && <ClientDetail />}
+        {screen === 'workout-builder' && <WorkoutBuilder />}
+        {screen === 'check-ins' && <CheckIns />}
+        {screen === 'messages' && <Messages />}
+        {screen === 'settings' && <Settings />}
+      </Suspense>
     </AppShell>
   )
 }

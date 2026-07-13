@@ -1,46 +1,75 @@
 'use client'
 
+/**
+ * Forge — UI-only Zustand store
+ *
+ * Production architecture: this store holds ONLY transient UI state.
+ * Persistent domain data lives in the DB and is accessed via React Query
+ * hooks (see src/lib/hooks). Mutations go through server actions.
+ *
+ * What lives here:
+ *   - Navigation state (mirrored to URL search params, see url-state.ts)
+ *   - Workout builder draft (transient editing state before save)
+ *   - Filter/sort preferences on list screens
+ *
+ * What does NOT live here anymore:
+ *   - Clients, programs, templates, check-ins, messages, etc.
+ *     (use useClients(), useClient(id), useCheckIns(id), etc.)
+ *   - Task completion (use toggleTaskAction server action)
+ *   - Send message (use sendMessageAction server action)
+ */
 import { create } from 'zustand'
-import { useShallow } from 'zustand/react/shallow'
-import type { ScreenId, Client, WorkoutTemplate, WorkoutBlock, CheckIn, Message, Task } from './types'
-import {
-  coach as seedCoach,
-  clients as seedClients,
-  programs as seedPrograms,
-  workoutTemplates as seedTemplates,
-  exercises as seedExercises,
-  checkIns as seedCheckIns,
-  messages as seedMessages,
-  habitLogs as seedHabitLogs,
-  savedReplies as seedSavedReplies,
-  tasks as seedTasks,
-  activityEvents as seedActivityEvents,
-} from './data'
+import type { WorkoutBlock } from '@/lib/types'
 
-interface AppState {
-  // Navigation
-  screen: ScreenId
+// Helper: read URL search params synchronously (client-only).
+// On SSR or first paint before hydration, returns null.
+function readUrlState() {
+  if (typeof window === 'undefined') return null
+  const params = new URLSearchParams(window.location.search)
+  const screen = params.get('screen')
+  const client = params.get('client')
+  const conversation = params.get('conversation')
+  const tab = params.get('tab')
+  return { screen, client, conversation, tab }
+}
+
+type Screen = 'dashboard' | 'clients' | 'client-detail' | 'workout-builder' | 'check-ins' | 'messages' | 'settings'
+type Tab = 'overview' | 'workouts' | 'check-ins' | 'progress' | 'notes' | 'chat'
+
+const VALID_SCREENS: Screen[] = ['dashboard', 'clients', 'client-detail', 'workout-builder', 'check-ins', 'messages', 'settings']
+const VALID_TABS: Tab[] = ['overview', 'workouts', 'check-ins', 'progress', 'notes', 'chat']
+
+// Initialize from URL on first client render so deep-links work
+function getInitialScreen(): Screen {
+  const url = readUrlState()
+  if (url?.screen && VALID_SCREENS.includes(url.screen as Screen)) return url.screen as Screen
+  return 'dashboard'
+}
+function getInitialClientId(): string | null {
+  return readUrlState()?.client ?? null
+}
+function getInitialConversationId(): string | null {
+  return readUrlState()?.conversation ?? null
+}
+function getInitialTab(): Tab {
+  const url = readUrlState()
+  if (url?.tab && VALID_TABS.includes(url.tab as Tab)) return url.tab as Tab
+  return 'overview'
+}
+
+interface UIState {
+  // ── Navigation (mirrored to URL) ────────────────────────────────────────
+  screen: Screen
   selectedClientId: string | null
   selectedConversationId: string | null
-  setScreen: (s: ScreenId) => void
-  openClient: (clientId: string) => void
-  openConversation: (clientId: string) => void
+  clientDetailTab: Tab
+  setScreen: (s: Screen) => void
+  openClient: (clientId: string, tab?: Tab) => void
+  openConversation: (clientId: string | null) => void
+  setClientDetailTab: (t: Tab) => void
 
-  // Data
-  coach: typeof seedCoach
-  clients: Client[]
-  programs: typeof seedPrograms
-  templates: WorkoutTemplate[]
-  exercises: typeof seedExercises
-  checkIns: CheckIn[]
-  messages: Message[]
-  habitLogs: typeof seedHabitLogs
-  savedReplies: typeof seedSavedReplies
-  tasks: Task[]
-  activityEvents: typeof seedActivityEvents
-
-  // Workout builder state
-  builderWorkout: WorkoutTemplate | null
+  // ── Workout builder draft (transient) ───────────────────────────────────
+  builderTemplateId: string | null
   builderDraftBlocks: WorkoutBlock[]
   builderTitle: string
   builderCategory: string
@@ -51,66 +80,43 @@ interface AppState {
   updateBlock: (blockId: string, patch: Partial<WorkoutBlock>) => void
   setBuilderTitle: (t: string) => void
   setBuilderCategory: (c: string) => void
-  saveTemplate: () => void
 
-  // Task completion
-  toggleTask: (taskId: string) => void
-
-  // Send message (local)
-  sendMessage: (clientId: string, text: string) => void
-
-  // Theme
-  theme: 'light' | 'dark' | 'system'
-  setTheme: (t: 'light' | 'dark' | 'system') => void
+  // ── List screen filters (transient) ─────────────────────────────────────
+  clientsSearch: string
+  clientsStatusFilter: 'all' | 'active' | 'paused' | 'completed'
+  clientsGoalFilter: string | 'all'
+  clientsSortBy: 'recent' | 'name' | 'adherence'
+  setClientsSearch: (s: string) => void
+  setClientsStatusFilter: (f: UIState['clientsStatusFilter']) => void
+  setClientsGoalFilter: (g: string | 'all') => void
+  setClientsSortBy: (s: UIState['clientsSortBy']) => void
 }
 
-export const useStore = create<AppState>((set, get) => ({
-  // Navigation
-  screen: 'dashboard',
-  selectedClientId: null,
-  selectedConversationId: null,
+export const useUIStore = create<UIState>((set) => ({
+  // Navigation — initialized from URL on client
+  screen: getInitialScreen(),
+  selectedClientId: getInitialClientId(),
+  selectedConversationId: getInitialConversationId(),
+  clientDetailTab: getInitialTab(),
   setScreen: (s) => set({ screen: s }),
-  openClient: (clientId) => set({ screen: 'client-detail', selectedClientId: clientId }),
+  openClient: (clientId, tab) =>
+    set({ screen: 'client-detail', selectedClientId: clientId, clientDetailTab: tab ?? 'overview' }),
   openConversation: (clientId) =>
     set({ screen: 'messages', selectedConversationId: clientId }),
+  setClientDetailTab: (t) => set({ clientDetailTab: t }),
 
-  // Data (seeded)
-  coach: seedCoach,
-  clients: seedClients,
-  programs: seedPrograms,
-  templates: seedTemplates,
-  exercises: seedExercises,
-  checkIns: seedCheckIns,
-  messages: seedMessages,
-  habitLogs: seedHabitLogs,
-  savedReplies: seedSavedReplies,
-  tasks: seedTasks,
-  activityEvents: seedActivityEvents,
-
-  // Workout builder
-  builderWorkout: null,
+  // Builder
+  builderTemplateId: null,
   builderDraftBlocks: [],
   builderTitle: 'Untitled Workout',
   builderCategory: 'Strength',
   setBuilder: (templateId) => {
-    if (!templateId) {
-      set({
-        builderWorkout: null,
-        builderDraftBlocks: [],
-        builderTitle: 'Untitled Workout',
-        builderCategory: 'Strength',
-      })
-      return
-    }
-    const t = get().templates.find((x) => x.id === templateId)
-    if (t) {
-      set({
-        builderWorkout: t,
-        builderDraftBlocks: t.blocks.map((b) => ({ ...b, exercises: [...b.exercises] })),
-        builderTitle: t.title,
-        builderCategory: t.category,
-      })
-    }
+    set({
+      builderTemplateId: templateId,
+      builderDraftBlocks: [],
+      builderTitle: 'Untitled Workout',
+      builderCategory: 'Strength',
+    })
   },
   addBlock: (block) => set((s) => ({ builderDraftBlocks: [...s.builderDraftBlocks, block] })),
   moveBlock: (from, to) =>
@@ -130,66 +136,14 @@ export const useStore = create<AppState>((set, get) => ({
     })),
   setBuilderTitle: (t) => set({ builderTitle: t }),
   setBuilderCategory: (c) => set({ builderCategory: c }),
-  saveTemplate: () => {
-    const s = get()
-    const newTemplate: WorkoutTemplate = {
-      id: `wt-${Date.now()}`,
-      title: s.builderTitle || 'Untitled Workout',
-      category: s.builderCategory,
-      duration: 60,
-      blocks: s.builderDraftBlocks,
-      created_at: new Date().toISOString(),
-    }
-    set({ templates: [newTemplate, ...s.templates] })
-  },
 
-  toggleTask: (taskId) =>
-    set((s) => ({
-      tasks: s.tasks.map((t) =>
-        t.id === taskId ? { ...t, completed: !t.completed } : t,
-      ),
-    })),
-
-  sendMessage: (clientId, text) =>
-    set((s) => ({
-      messages: [
-        ...s.messages,
-        {
-          id: `msg-${Date.now()}`,
-          client_id: clientId,
-          sender_type: 'coach',
-          message_text: text,
-          created_at: new Date().toISOString(),
-          attachment_placeholder: false,
-          read_status: true,
-        },
-      ],
-    })),
-
-  theme: 'system',
-  setTheme: (t) => set({ theme: t }),
+  // List filters
+  clientsSearch: '',
+  clientsStatusFilter: 'all',
+  clientsGoalFilter: 'all',
+  clientsSortBy: 'recent',
+  setClientsSearch: (s) => set({ clientsSearch: s }),
+  setClientsStatusFilter: (f) => set({ clientsStatusFilter: f }),
+  setClientsGoalFilter: (g) => set({ clientsGoalFilter: g }),
+  setClientsSortBy: (s) => set({ clientsSortBy: s }),
 }))
-
-// Selector helpers — use useShallow for array-returning selectors to prevent infinite loops
-export const useClient = (clientId: string | null) =>
-  useStore((s) => (clientId ? s.clients.find((c) => c.id === clientId) ?? null : null))
-
-export const useClientCheckIns = (clientId: string | null) =>
-  useStore(
-    useShallow((s) =>
-      clientId ? s.checkIns.filter((ci) => ci.client_id === clientId) : [],
-    ),
-  )
-
-export const useClientMessages = (clientId: string | null) =>
-  useStore(
-    useShallow((s) =>
-      clientId ? s.messages.filter((m) => m.client_id === clientId) : [],
-    ),
-  )
-
-export const useClientProgram = (clientId: string | null) =>
-  useStore((s) => {
-    if (!clientId) return null
-    return s.programs.find((p) => p.client_id === clientId) ?? null
-  })

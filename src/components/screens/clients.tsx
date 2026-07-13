@@ -4,9 +4,7 @@ import * as React from 'react'
 import { motion } from 'framer-motion'
 import {
   Search,
-  Filter,
   Users,
-  ChevronDown,
   ChevronRight,
   MessageSquare,
   ClipboardCheck,
@@ -15,38 +13,43 @@ import {
   Plus,
   ArrowUpDown,
 } from 'lucide-react'
-import { useStore } from '@/lib/store'
+import { useUIStore } from '@/lib/store'
+import { useClients } from '@/lib/hooks'
 import { StatusTag, GoalTag, PhaseTag, AdherenceRing, EmptyState } from '@/components/shared'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import type { ClientStatus, Goal } from '@/lib/types'
-import { formatDistanceToNow } from 'date-fns'
+import type { Client, ClientStatus, Goal } from '@/lib/types'
 
 type StatusFilter = ClientStatus | 'all'
-type SortKey = 'name' | 'adherence' | 'recent'
+
+const GOALS: Goal[] = [
+  'Hypertrophy',
+  'Fat Loss',
+  'Strength',
+  'General Fitness',
+  'Athletic Performance',
+  'Recomposition',
+]
 
 export function Clients() {
-  const clients = useStore((s) => s.clients)
-  const openClient = useStore((s) => s.openClient)
-  const openConversation = useStore((s) => s.openConversation)
-  const setScreen = useStore((s) => s.setScreen)
+  const clientsQuery = useClients()
+  const clients = clientsQuery.data ?? []
+  const openClient = useUIStore((s) => s.openClient)
+  const openConversation = useUIStore((s) => s.openConversation)
+  const setScreen = useUIStore((s) => s.setScreen)
 
-  const [search, setSearch] = React.useState('')
-  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all')
-  const [goalFilter, setGoalFilter] = React.useState<Goal | 'all'>('all')
-  const [sortBy, setSortBy] = React.useState<SortKey>('recent')
-
-  const goals: Goal[] = [
-    'Hypertrophy',
-    'Fat Loss',
-    'Strength',
-    'General Fitness',
-    'Athletic Performance',
-    'Recomposition',
-  ]
+  // UI-only filter state lives in the store so it survives navigation
+  const search = useUIStore((s) => s.clientsSearch)
+  const statusFilter = useUIStore((s) => s.clientsStatusFilter)
+  const goalFilter = useUIStore((s) => s.clientsGoalFilter)
+  const sortBy = useUIStore((s) => s.clientsSortBy)
+  const setSearch = useUIStore((s) => s.setClientsSearch)
+  const setStatusFilter = useUIStore((s) => s.setClientsStatusFilter)
+  const setGoalFilter = useUIStore((s) => s.setClientsGoalFilter)
+  const setSortBy = useUIStore((s) => s.setClientsSortBy)
 
   const filtered = React.useMemo(() => {
     let list = clients.filter((c) => {
@@ -58,7 +61,6 @@ export function Clients() {
     list = list.sort((a, b) => {
       if (sortBy === 'name') return a.full_name.localeCompare(b.full_name)
       if (sortBy === 'adherence') return b.adherence_score - a.adherence_score
-      // recent
       return new Date(b.last_activity || 0).getTime() - new Date(a.last_activity || 0).getTime()
     })
     return list
@@ -100,7 +102,6 @@ export function Clients() {
             />
           </div>
           <div className="flex gap-2 flex-wrap">
-            {/* Status filter pills */}
             <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/60">
               {(['all', 'active', 'paused', 'completed'] as StatusFilter[]).map((s) => (
                 <button
@@ -120,10 +121,9 @@ export function Clients() {
                 </button>
               ))}
             </div>
-            {/* Sort */}
             <button
               onClick={() => {
-                const order: SortKey[] = ['recent', 'name', 'adherence']
+                const order: ('recent' | 'name' | 'adherence')[] = ['recent', 'name', 'adherence']
                 const next = order[(order.indexOf(sortBy) + 1) % order.length]
                 setSortBy(next)
               }}
@@ -135,21 +135,29 @@ export function Clients() {
           </div>
         </div>
 
-        {/* Goal filter chips */}
         <div className="flex gap-1.5 mt-3 overflow-x-auto scrollbar-none pb-1">
-          <FilterChip active={goalFilter === 'all'} onClick={() => setGoalFilter('all')}>
-            All Goals
-          </FilterChip>
-          {goals.map((g) => (
-            <FilterChip key={g} active={goalFilter === g} onClick={() => setGoalFilter(g)}>
-              {g}
-            </FilterChip>
+          <FilterChip active={goalFilter === 'all'} onClick={() => setGoalFilter('all')}>All Goals</FilterChip>
+          {GOALS.map((g) => (
+            <FilterChip key={g} active={goalFilter === g} onClick={() => setGoalFilter(g)}>{g}</FilterChip>
           ))}
         </div>
       </div>
 
-      {/* Empty state */}
-      {filtered.length === 0 ? (
+      {/* Loading state */}
+      {clientsQuery.isLoading ? (
+        <div className="card-premium rounded-xl overflow-hidden">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-6 py-3.5 border-b border-border/60">
+              <Skeleton className="w-9 h-9 rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-2 w-48" />
+              </div>
+              <Skeleton className="w-9 h-9 rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="card-premium rounded-xl">
           <EmptyState
             icon={Users}
@@ -192,13 +200,7 @@ export function Clients() {
           {/* Mobile cards */}
           <div className="lg:hidden space-y-3">
             {filtered.map((c, i) => (
-              <ClientCardMobile
-                key={c.id}
-                client={c}
-                index={i}
-                onOpen={() => openClient(c.id)}
-                onMessage={() => openConversation(c.id)}
-              />
+              <ClientCardMobile key={c.id} client={c} index={i} onOpen={() => openClient(c.id)} onMessage={() => openConversation(c.id)} />
             ))}
           </div>
         </>
@@ -221,9 +223,7 @@ function FilterChip({
       onClick={onClick}
       className={cn(
         'shrink-0 px-2.5 py-1 rounded-md text-xs font-medium transition-colors tap-smooth',
-        active
-          ? 'bg-primary text-primary-foreground'
-          : 'bg-muted/60 text-muted-foreground hover:text-foreground',
+        active ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:text-foreground',
       )}
     >
       {children}
@@ -237,7 +237,7 @@ function ClientRow({
   onOpen,
   onMessage,
 }: {
-  client: ReturnType<typeof useStore.getState>['clients'][number]
+  client: Client
   index: number
   onOpen: () => void
   onMessage: () => void
@@ -270,9 +270,7 @@ function ClientRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-foreground truncate">{c.full_name}</span>
-            {c.unread_count ? (
-              <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-            ) : null}
+            {c.unread_count ? <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> : null}
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className="text-[11px] text-muted-foreground">{c.age}y · {c.gender}</span>
@@ -280,12 +278,8 @@ function ClientRow({
           </div>
         </div>
       </div>
-      <div>
-        <GoalTag goal={c.goal} />
-      </div>
-      <div>
-        <PhaseTag phase={c.training_phase} />
-      </div>
+      <div><GoalTag goal={c.goal} /></div>
+      <div><PhaseTag phase={c.training_phase} /></div>
       <div className="flex items-center gap-2">
         <AdherenceRing score={c.adherence_score} size={36} stroke={3.5} />
         <span className="text-xs text-muted-foreground">{c.weekly_streak}w streak</span>
@@ -318,7 +312,7 @@ function ClientCardMobile({
   onOpen,
   onMessage,
 }: {
-  client: ReturnType<typeof useStore.getState>['clients'][number]
+  client: Client
   index: number
   onOpen: () => void
   onMessage: () => void

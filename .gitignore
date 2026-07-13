@@ -52,3 +52,12 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Database
+db/*.db
+db/*.db-journal
+
+# Env
+.env
+
+# Seed fixture (regenerate with `bun run scripts/build-seed-fixture.ts`)
+scripts/seed-data.json

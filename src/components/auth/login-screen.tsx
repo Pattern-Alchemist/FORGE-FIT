@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Flame, Mail, Lock, ArrowRight, Loader2, User, ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input'
 type Mode = 'login' | 'signup' | 'forgot' | 'reset'
 
 export function LoginScreen() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const [mode, setMode] = React.useState<Mode>('login')
   const [email, setEmail] = React.useState('')
@@ -61,7 +60,8 @@ export function LoginScreen() {
         if (res?.error) {
           setError('Invalid email or password.')
         } else {
-          router.refresh()
+          // Force a full page reload so useSession() picks up the new cookie
+          window.location.href = '/'
         }
       } else if (mode === 'signup') {
         const res = await fetch('/api/auth/signup', {

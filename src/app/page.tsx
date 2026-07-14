@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { useSession } from 'next-auth/react'
 import { Suspense } from 'react'
 import { useUIStore } from '@/lib/store'
 import { AppShell } from '@/components/app-shell'
@@ -15,12 +14,20 @@ import { CheckIns } from '@/components/screens/check-ins'
 import { Messages } from '@/components/screens/messages'
 import { Settings } from '@/components/screens/settings'
 import { Flame } from 'lucide-react'
+import type { ForgeSession } from '@/lib/forge-session'
 
 export default function Home() {
-  const { data: session, status } = useSession()
+  const [session, setSession] = React.useState<ForgeSession | null | undefined>(undefined)
 
-  // Loading state — show minimal splash while NextAuth resolves session
-  if (status === 'loading') {
+  React.useEffect(() => {
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => setSession(data.user ?? null))
+      .catch(() => setSession(null))
+  }, [])
+
+  // Loading state
+  if (session === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -36,8 +43,8 @@ export default function Home() {
     )
   }
 
-  // Unauthenticated → login screen (wrapped in Suspense for useSearchParams)
-  if (!session || !session.user) {
+  // Unauthenticated → login screen
+  if (!session) {
     return (
       <Suspense fallback={null}>
         <LoginScreen />
@@ -46,11 +53,11 @@ export default function Home() {
   }
 
   // Client role → client mobile app
-  if (session.user.role === 'client') {
+  if (session.role === 'client') {
     return <ClientMobileApp />
   }
 
-  // Coach role → coach dashboard (existing app)
+  // Coach role → coach dashboard
   return <CoachApp />
 }
 

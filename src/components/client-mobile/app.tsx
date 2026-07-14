@@ -18,7 +18,11 @@ import * as React from 'react'
 import { useTheme } from 'next-themes'
 import { Home, Dumbbell, ClipboardCheck, MessageSquare, Flame, Sun, Moon, TrendingUp, Apple } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { signOut } from 'next-auth/react'
+
+async function forgeLogout() {
+  await fetch('/api/auth/logout', { method: 'POST' })
+  window.location.href = '/'
+}
 import { cn } from '@/lib/utils'
 import { ClientHome } from './home'
 import { ClientWorkout } from './workout'
@@ -68,7 +72,7 @@ export function ClientMobileApp() {
             {mounted && theme === 'dark' ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
           </button>
           <button
-            onClick={() => signOut({ callbackUrl: '/' })}
+            onClick={forgeLogout}
             className="w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted tap-smooth text-xs font-medium"
             aria-label="Sign out"
           >

@@ -43,8 +43,6 @@ declare module 'next-auth/jwt' {
 }
 
 export const authOptions: NextAuthOptions = {
-  // Trust the proxy host so cookies work in preview environments
-  trustHost: true,
   providers: [
     CredentialsProvider({
       name: 'credentials',

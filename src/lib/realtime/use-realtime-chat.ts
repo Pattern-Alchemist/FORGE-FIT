@@ -12,7 +12,7 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import { useSession } from 'next-auth/react'
+import type { ForgeSession } from '@/lib/forge-session'
 
 export interface RealtimeMessage {
   id: string
@@ -23,17 +23,25 @@ export interface RealtimeMessage {
 }
 
 export function useRealtimeChat(clientId: string | null) {
-  const { data: session } = useSession()
+  const [session, setSession] = useState<ForgeSession | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
   const [lastMessage, setLastMessage] = useState<RealtimeMessage | null>(null)
   const socketRef = useRef<Socket | null>(null)
 
+  // Fetch session on mount
+  useEffect(() => {
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => setSession(data.user ?? null))
+      .catch(() => setSession(null))
+  }, [])
+
   // Resolve the effective clientId: either the one passed in, or the session's
-  const effectiveClientId = clientId ?? (session?.user?.role === 'client' ? session.user.clientId : null)
+  const effectiveClientId = clientId ?? (session?.role === 'client' ? session.clientId : null)
 
   useEffect(() => {
-    if (!session?.user) return
+    if (!session) return
 
     const socket = io('/?XTransformPort=3003', {
       transports: ['websocket', 'polling'],
@@ -49,10 +57,10 @@ export function useRealtimeChat(clientId: string | null) {
     socket.on('connect', () => {
       setIsConnected(true)
       socket.emit('identify', {
-        userId: session.user.id,
-        role: session.user.role,
-        coachId: session.user.coachId,
-        clientId: session.user.clientId,
+        userId: session.userId,
+        role: session.role,
+        coachId: session.coachId,
+        clientId: session.clientId,
       })
       if (effectiveClientId) {
         socket.emit('join-conversation', effectiveClientId)
@@ -62,14 +70,13 @@ export function useRealtimeChat(clientId: string | null) {
     socket.on('disconnect', () => setIsConnected(false))
 
     socket.on('new-message', (msg: RealtimeMessage) => {
-      // Only surface messages for the active conversation
       if (!effectiveClientId || msg.clientId === effectiveClientId) {
         setLastMessage(msg)
       }
     })
 
     socket.on('typing', (data: { clientId: string; isTyping: boolean; senderType: string }) => {
-      if (effectiveClientId && data.clientId === effectiveClientId && data.senderType !== session.user.role) {
+      if (effectiveClientId && data.clientId === effectiveClientId && data.senderType !== session.role) {
         setIsTyping(data.isTyping)
         if (data.isTyping) {
           setTimeout(() => setIsTyping(false), 3000)

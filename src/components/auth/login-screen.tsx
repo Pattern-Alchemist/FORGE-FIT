@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { signIn } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Flame, Mail, Lock, ArrowRight, Loader2, User, ArrowLeft, CheckCircle2 } from 'lucide-react'
@@ -52,15 +51,16 @@ export function LoginScreen() {
 
     try {
       if (mode === 'login') {
-        const res = await signIn('credentials', {
-          email,
-          password,
-          redirect: false,
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
         })
-        if (res?.error) {
-          setError('Invalid email or password.')
+        const data = await res.json()
+        if (!res.ok) {
+          setError(data.error || 'Invalid email or password.')
         } else {
-          // Force a full page reload so useSession() picks up the new cookie
+          // Full reload so the server component re-renders with the session
           window.location.href = '/'
         }
       } else if (mode === 'signup') {
@@ -88,7 +88,6 @@ export function LoginScreen() {
           setError(data.error || 'Request failed')
         } else {
           setSuccess('If that email exists, a reset link has been generated.')
-          // Demo: show the reset URL
           if (data._devResetUrl) {
             setResetToken(data._devResetUrl.split('?reset=')[1])
             setSuccess(`Reset link generated. Click below to reset your password.`)

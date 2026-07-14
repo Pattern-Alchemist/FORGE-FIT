@@ -4,7 +4,6 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/providers/query-provider";
-import { SessionProviderWrapper } from "@/components/providers/session-provider";
 
 const inter = Inter({
   variable: "--font-geist-sans",
@@ -61,12 +60,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange={false}
         >
-          <SessionProviderWrapper>
-            <QueryProvider>
-              {children}
-              <Toaster />
-            </QueryProvider>
-          </SessionProviderWrapper>
+          <QueryProvider>
+            {children}
+            <Toaster />
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

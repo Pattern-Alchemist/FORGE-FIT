@@ -1,52 +1,31 @@
 /**
  * Forge — Server-side session helpers
  *
- * Use getServerSession() in route handlers and server actions to get the
- * current user. Returns null if not authenticated.
+ * Uses our custom JWT cookie session (forge-session.ts) instead of NextAuth.
+ * This works reliably behind the preview proxy.
  */
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getForgeSession, type ForgeSession } from '@/lib/forge-session'
 
-export type AppSession = {
-  user: {
-    id: string
-    email: string
-    name?: string | null
-    image?: string | null
-    role: 'coach' | 'client'
-    coachId?: string | null
-    clientId?: string | null
-    profileId?: string | null
-  }
-}
+export type AppSession = ForgeSession
 
 export async function getSession(): Promise<AppSession | null> {
-  const session = await getServerSession(authOptions)
-  return session as AppSession | null
+  return getForgeSession()
 }
 
-/**
- * Returns the coachId for the current session (coach role only).
- * Throws if unauthenticated or not a coach.
- */
 export async function requireCoachId(): Promise<string> {
   const session = await getSession()
   if (!session) throw new Error('Unauthorized')
-  if (session.user.role !== 'coach' || !session.user.coachId) {
+  if (session.role !== 'coach' || !session.coachId) {
     throw new Error('Coach access required')
   }
-  return session.user.coachId
+  return session.coachId
 }
 
-/**
- * Returns the clientId for the current session (client role only).
- * Throws if the user is not a client.
- */
 export async function requireClientId(): Promise<string> {
   const session = await getSession()
   if (!session) throw new Error('Unauthorized')
-  if (session.user.role !== 'client' || !session.user.clientId) {
+  if (session.role !== 'client' || !session.clientId) {
     throw new Error('Client access required')
   }
-  return session.user.clientId
+  return session.clientId
 }

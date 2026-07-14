@@ -6,18 +6,26 @@
  * Idempotent: uses upserts on stable IDs so re-running won't duplicate.
  */
 import { PrismaClient } from '@prisma/client'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import bcrypt from 'bcryptjs'
 
 const db = new PrismaClient()
 
 // Load JSON fixture that mirrors the original TS seed data.
-// Generated from src/lib/data.ts via a one-time conversion.
+// Auto-generates it from src/lib/data.ts if missing.
 const FIXTURE_PATH = resolve('scripts/seed-data.json')
 
 async function main() {
   console.log('🌱 Seeding Forge database…')
+
+  // Auto-generate the fixture if it doesn't exist (e.g. after git clone)
+  if (!existsSync(FIXTURE_PATH)) {
+    console.log('  ⚡ seed-data.json not found, generating from src/lib/data.ts…')
+    const { execSync } = await import('child_process')
+    execSync('bun run scripts/build-seed-fixture.ts', { stdio: 'inherit' })
+  }
+
   const raw = readFileSync(FIXTURE_PATH, 'utf-8')
   const data = JSON.parse(raw)
 

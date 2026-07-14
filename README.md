@@ -149,7 +149,7 @@ Open http://localhost:3000 — you'll land on the dashboard with all KPIs popula
 1. Change `provider = "sqlite"` to `"postgresql"` in `prisma/schema.prisma`
 2. Set `DATABASE_URL=postgresql://…` in `.env`
 3. `bun run db:push` (or `bun run db:migrate dev --name init_postgres`)
-4. `bun run db:seed` to repopulate
+4. `bun run db:seed` to repopulate (auto-generates the JSON fixture if missing)
 
 No code changes needed — all queries use Prisma's typed client.
 
